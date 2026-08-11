@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 生图</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link rel="stylesheet" href="/style.css?v=20260805-1" />
+  </head>
+  <body>
+    <header class="top-nav glass">
+      <div class="brand">
+        <div class="brand-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+        <div>
+          <h1>AI 生图</h1>
+          <p id="serverState">正在连接中转站</p>
+        </div>
+      </div>
+      <div class="live-status" aria-live="polite" aria-label="网站实时状态">
+        <div class="live-stat">
+          <i class="fa-solid fa-spinner"></i>
+          <span>运行中</span>
+          <strong id="runningTasksCount">-</strong>
+        </div>
+        <div class="live-stat">
+          <i class="fa-solid fa-user-group"></i>
+          <span>在线</span>
+          <strong id="onlineUsersCount">-</strong>
+        </div>
+      </div>
+      <div class="nav-actions">
+        <button class="pill emerald" type="button" data-open="guide"><i class="fa-solid fa-circle-info"></i><span>教程</span></button>
+        <button class="pill orange" type="button" id="clearBtn"><i class="fa-solid fa-trash-can"></i><span>清空</span></button>
+        <button class="pill slate" type="button" data-open="settings"><i class="fa-solid fa-gear"></i><span>设置</span></button>
+      </div>
+    </header>
+
+    <section id="retentionNoticeWrap" class="notice-shell">
+      <div id="retentionNotice" class="retention-notice">
+        <div class="notice-text">
+          <i class="fa-solid fa-bell"></i>
+          <strong>温馨提示：</strong>
+          <span>平台不会永久保存数据，生成的图片仅保留 48 小时，请及时下载备份，逾期丢失概不负责。</span>
+        </div>
+        <label class="notice-check">
+          <input id="noticeTodayCheckbox" type="checkbox" />
+          <span>今日不再提醒</span>
+        </label>
+      </div>
+    </section>
+
+    <main class="page-shell">
+      <section id="emptyState" class="empty-state">
+        <div class="empty-icon"><i class="fa-regular fa-images"></i></div>
+        <h2>开始生成你的第一张图片</h2>
+        <p>选择模型、比例与清晰度，然后在底部输入提示词。</p>
+      </section>
+      <section id="gallery" class="gallery-grid"></section>
+    </main>
+
+    <form id="createForm" class="bottom-console" autocomplete="off">
+      <div class="console-card glass">
+        <div class="drop-hint" aria-hidden="true">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <span>松开添加参考图</span>
+        </div>
+        <div class="option-row">
+          <button class="option-chip indigo" type="button" data-open="model" aria-label="选择生图模型">
+            <i class="fa-solid fa-microchip"></i>
+            <span id="btnModelName">GPT-image-2</span>
+            <i class="fa-solid fa-chevron-up"></i>
+          </button>
+          <button class="option-chip blue" type="button" data-open="size">
+            <i class="fa-solid fa-crop-simple"></i>
+            <span id="btnSizeName">1:1 (1024x1024)</span>
+            <i class="fa-solid fa-chevron-up"></i>
+          </button>
+          <button class="option-chip cyan" type="button" data-open="quality">
+            <i class="fa-solid fa-gem"></i>
+            <span id="btnQualityName">Auto</span>
+            <i class="fa-solid fa-chevron-up"></i>
+          </button>
+          <button class="option-chip amber" type="button" data-open="count">
+            <i class="fa-solid fa-layer-group"></i>
+            <span id="btnCountName">1张</span>
+            <i class="fa-solid fa-chevron-up"></i>
+          </button>
+          <label class="option-chip upload-chip">
+            <input id="referenceInput" type="file" accept="image/*" multiple />
+            <i class="fa-solid fa-image"></i>
+            <span id="refCountText">传图/拖入</span>
+          </label>
+        </div>
+
+        <div id="previewStrip" class="preview-strip"></div>
+
+        <div class="prompt-row">
+          <div id="mentionMenu" class="mention-menu hidden" role="listbox" aria-label="选择参考图"></div>
+          <textarea id="prompt" rows="1" placeholder="描述想要生成的画面...（支持多行）"></textarea>
+          <button id="submitBtn" class="send-btn" type="submit" aria-label="开始生成">
+            <i id="generateIcon" class="fa-solid fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <section id="modelModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h3>生图模型</h3>
+            <p>选择当前任务使用的模型通道。</p>
+          </div>
+          <button type="button" class="icon-btn" data-close="model"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="quality-grid model-grid" id="modelGrid">
+          <button type="button" data-model="gpt-image-2" class="active">GPT-image-2</button>
+          <button type="button" data-model="Nano Banana 2">Nano Banana 2</button>
+          <button type="button" data-model="Nano Banana Pro">Nano Banana Pro</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="sizeModal" class="modal hidden">
+      <div class="modal-card size-card">
+        <div class="modal-head">
+          <div>
+            <h3>画面尺寸</h3>
+            <p>当前尺寸：<strong id="modalCurrentSize">1024x1024</strong></p>
+          </div>
+          <button type="button" class="icon-btn" data-close="size"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="segmented" id="resolutionGroup">
+          <button type="button" data-resolution="1K" class="active">1K</button>
+          <button type="button" data-resolution="2K">2K</button>
+          <button type="button" data-resolution="4K">4K</button>
+        </div>
+        <div id="ratioGrid" class="ratio-grid"></div>
+        <button type="button" class="primary-wide" data-close="size">确认尺寸</button>
+      </div>
+    </section>
+
+    <section id="qualityModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h3>生成质量</h3>
+            <p>高质量会更慢，具体耗时取决于中转站。</p>
+          </div>
+          <button type="button" class="icon-btn" data-close="quality"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="quality-grid" id="qualityGrid">
+          <button type="button" data-quality="low">Low</button>
+          <button type="button" data-quality="auto" class="active">Auto</button>
+          <button type="button" data-quality="medium">Medium</button>
+          <button type="button" data-quality="high">High</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="countModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h3>生成张数</h3>
+            <p>一次请求返回多张图，张数越多等待越久、消耗越多。</p>
+          </div>
+          <button type="button" class="icon-btn" data-close="count"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="quality-grid count-grid" id="countGrid">
+          <button type="button" data-count="1" class="active">1张</button>
+          <button type="button" data-count="2">2张</button>
+          <button type="button" data-count="3">3张</button>
+          <button type="button" data-count="4">4张</button>
+          <button type="button" data-count="5">5张</button>
+          <button type="button" data-count="6">6张</button>
+          <button type="button" data-count="7">7张</button>
+          <button type="button" data-count="8">8张</button>
+          <button type="button" data-count="9">9张</button>
+          <button type="button" data-count="10">10张</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h3>令牌设置 <a class="token-help" href="#" data-open="guide">令牌获取方法请看使用教程</a></h3>
+            <p>每个用户保存自己的 API Key，生成时使用自己的令牌。</p>
+          </div>
+          <button type="button" class="icon-btn" data-close="settings"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="token-panel">
+          <label for="apiKeyInput">API 令牌 (API Key)</label>
+          <div class="token-input-wrap">
+            <input id="apiKeyInput" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+            <button id="toggleKeyBtn" type="button" aria-label="显示或隐藏令牌"><i class="fa-solid fa-eye"></i></button>
+          </div>
+          <button id="saveApiKeyBtn" type="button" class="primary-wide">保存令牌</button>
+          <div class="config-list compact">
+            <div><span>接口地址</span><strong id="apiBaseText">-</strong></div>
+            <div><span>当前令牌</span><strong id="keyStateText">-</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="guideModal" class="modal hidden">
+      <div class="modal-card guide-card">
+        <div class="modal-head">
+          <div>
+            <h3><i class="fa-solid fa-book-open"></i> 使用教程</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close="guide"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="guide-sections">
+          <article>
+            <h4><span>STEP 1</span> 获取 API 令牌 (Key)</h4>
+            <p>申请入口①：<a href="https://api.kkone.vip" target="_blank" rel="noreferrer">KKAI (大模型中转平台)</a></p>
+            <p>注册账号 → 控制台 → 令牌管理 → 添加令牌 <strong>（分组选 default）</strong>。</p>
+          </article>
+          <article>
+            <h4><span>STEP 2</span> 配置并开始生图</h4>
+            <p>复制 sk- 开头的令牌，回到本页右上角“设置令牌”中保存即可。</p>
+            <p class="tip"><i class="fa-solid fa-lightbulb"></i> 提示：不传参考图即为文生图，上传参考图即为图生图。</p>
+          </article>
+          <article>
+            <h4><span class="recharge"><i class="fa-solid fa-coins"></i> 充值</span> 额度获取与充值</h4>
+            <p>控制台 → 钱包管理 → 额度充值；也可购买兑换码后兑换充值。</p>
+          </article>
+          <article>
+            <h4><span class="dev"><i class="fa-solid fa-code"></i> 开发者</span> 接口调用</h4>
+            <p>接口文档：<a href="https://mookoapi.apifox.cn/450356676e0" target="_blank" rel="noreferrer">https://mookoapi.apifox.cn/450356676e0</a></p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="lightbox" class="lightbox hidden">
+      <button type="button" class="lightbox-close"><i class="fa-solid fa-xmark"></i></button>
+      <button id="lightboxPrev" type="button" class="lightbox-nav lightbox-prev" aria-label="上一张图片">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+      <img id="lightboxImg" alt="生成图片预览" />
+      <button id="lightboxNext" type="button" class="lightbox-nav lightbox-next" aria-label="下一张图片">
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
+      <p id="lightboxPrompt"></p>
+    </section>
+
+    <script src="/app.js?v=20260805-1" type="module"></script>
+  </body>
+</html>

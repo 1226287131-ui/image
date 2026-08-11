@@ -1,0 +1,17 @@
+# Runtime-generated task data and image files
+/outputs/*
+!/outputs/.gitkeep
+/storage/tasks/*
+!/storage/tasks/.gitkeep
+/storage/visitors/*
+/storage/cleanup-state.json
+/storage/cleanup.lock
+
+# Local release archives and generated documents
+/php-version.zip
+/生图网站API开发文档.pdf
+
+# OS and editor artifacts
+.DS_Store
+Thumbs.db
+*.log
