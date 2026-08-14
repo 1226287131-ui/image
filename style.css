@@ -166,6 +166,12 @@ h1 {
   background: #ecfdf5;
 }
 
+.pill.blue {
+  color: #fff;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.22);
+}
+
 .pill.orange {
   color: #fff;
   background: linear-gradient(135deg, #fb923c, #f43f5e);
@@ -179,6 +185,12 @@ h1 {
 .pill.slate {
   color: #475569;
   background: #f1f5f9;
+}
+
+.pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  box-shadow: none;
 }
 
 .page-shell {
@@ -1357,7 +1369,7 @@ textarea {
   }
 
   .nav-actions {
-    gap: 7px;
+    gap: 4px;
   }
 
   .live-status {
@@ -1366,10 +1378,10 @@ textarea {
   }
 
   .live-stat {
-    min-width: 54px;
+    min-width: 46px;
     height: 32px;
     gap: 5px;
-    padding: 0 8px;
+    padding: 0 6px;
     font-size: 0;
   }
 
@@ -1383,15 +1395,16 @@ textarea {
   }
 
   .pill {
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     position: relative;
     justify-content: center;
     padding: 0;
     font-size: 14px;
   }
 
-  .pill.has-selection::after {
+  .pill.has-selection::after,
+  .pill.download-ready::after {
     content: attr(data-selected-count);
     position: absolute;
     top: -4px;
@@ -1407,6 +1420,10 @@ textarea {
     border: 2px solid #fff;
     font-size: 10px;
     line-height: 1;
+  }
+
+  .pill.download-ready::after {
+    background: #2563eb;
   }
 
   .pill span {

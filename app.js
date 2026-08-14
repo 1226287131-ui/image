@@ -10,6 +10,9 @@ const submitBtn = document.querySelector("#submitBtn");
 const generateIcon = document.querySelector("#generateIcon");
 const clearBtn = document.querySelector("#clearBtn");
 const clearBtnLabel = document.querySelector("#clearBtn span");
+const downloadBtn = document.querySelector("#downloadBtn");
+const downloadBtnLabel = document.querySelector("#downloadBtnLabel");
+const downloadIcon = document.querySelector("#downloadIcon");
 const serverState = document.querySelector("#serverState");
 const btnModelName = document.querySelector("#btnModelName");
 const btnSizeName = document.querySelector("#btnSizeName");
@@ -109,6 +112,18 @@ const imageLoadPromises = new Map();
 let lightboxState = { taskId: null, imageIndex: 0 };
 let siteStatusTimer = null;
 let dragDepth = 0;
+let batchDownloadState = { active: false, completed: 0, total: 0 };
+const ZIP_CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < table.length; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0);
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
 const mentionState = {
   open: false,
   start: -1,
@@ -117,12 +132,44 @@ const mentionState = {
 
 function syncDeleteButton() {
   const selectedCount = selectedTaskIds.size;
-  if (!clearBtn) return;
-  if (clearBtnLabel) clearBtnLabel.textContent = selectedCount ? `删除(${selectedCount})` : "清空";
-  clearBtn.dataset.selectedCount = selectedCount ? String(selectedCount) : "";
-  clearBtn.title = selectedCount ? `删除已选 ${selectedCount} 个任务` : "清空全部任务";
-  clearBtn.setAttribute("aria-label", clearBtn.title);
-  clearBtn.classList.toggle("has-selection", selectedCount > 0);
+  if (clearBtn) {
+    if (clearBtnLabel) clearBtnLabel.textContent = selectedCount ? `删除(${selectedCount})` : "清空";
+    clearBtn.dataset.selectedCount = selectedCount ? String(selectedCount) : "";
+    clearBtn.title = selectedCount ? `删除已选 ${selectedCount} 个任务` : "清空全部任务";
+    clearBtn.setAttribute("aria-label", clearBtn.title);
+    clearBtn.classList.toggle("has-selection", selectedCount > 0);
+  }
+  syncDownloadButton();
+}
+
+function selectedDownloadEntries() {
+  return state.tasks.flatMap((task) => {
+    if (!selectedTaskIds.has(task.id) || task.status !== "succeeded" || !Array.isArray(task.images)) return [];
+    return task.images
+      .map((image, imageIndex) => ({ task, image, imageIndex }))
+      .filter(({ image }) => Boolean(proxyImageUrl(image) || image?.url));
+  });
+}
+
+function syncDownloadButton() {
+  if (!downloadBtn) return;
+
+  const entries = selectedDownloadEntries();
+  const { active, completed, total } = batchDownloadState;
+  const label = active ? `打包 ${completed}/${total}` : entries.length ? `下载(${entries.length})` : "批量下载";
+  const title = active
+    ? `正在打包 ${completed}/${total} 张图片`
+    : entries.length
+      ? `下载已选的 ${entries.length} 张图片`
+      : "请先选择已完成的任务";
+
+  if (downloadBtnLabel) downloadBtnLabel.textContent = label;
+  if (downloadIcon) downloadIcon.className = active ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-download";
+  downloadBtn.disabled = active || entries.length === 0;
+  downloadBtn.title = title;
+  downloadBtn.setAttribute("aria-label", title);
+  downloadBtn.dataset.selectedCount = entries.length ? String(entries.length) : "";
+  downloadBtn.classList.toggle("download-ready", !active && entries.length > 0);
 }
 
 function pruneSelectedTasks() {
@@ -211,6 +258,28 @@ async function readErrorMessage(response, fallback) {
   }
 }
 
+async function fetchImageBlob(image) {
+  const proxyUrl = proxyImageUrl(image);
+  const sourceUrl = proxyUrl || String(image?.url || "");
+  if (!sourceUrl) throw new Error("图片地址缺失。");
+
+  const headers = {};
+  if (proxyUrl && state.apiKey) headers["X-API-Key"] = state.apiKey;
+
+  const response = await fetch(sourceUrl, {
+    method: "GET",
+    headers,
+    cache: "force-cache"
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `图片读取失败，HTTP ${response.status}`));
+  }
+
+  const blob = await response.blob();
+  if (!blob.size) throw new Error("图片文件为空。");
+  return blob;
+}
+
 async function ensureTaskImageLoaded(taskId, imageIndex, options = {}) {
   const task = state.tasks.find((item) => item.id === taskId);
   const image = task?.images?.[imageIndex];
@@ -228,19 +297,7 @@ async function ensureTaskImageLoaded(taskId, imageIndex, options = {}) {
   if (!proxyUrl) return image.url || null;
 
   const promise = (async () => {
-    const headers = {};
-    if (state.apiKey) headers["X-API-Key"] = state.apiKey;
-
-    const response = await fetch(proxyUrl, {
-      method: "GET",
-      headers,
-      cache: "force-cache"
-    });
-    if (!response.ok) {
-      throw new Error(await readErrorMessage(response, `图片读取失败，HTTP ${response.status}`));
-    }
-
-    const blob = await response.blob();
+    const blob = await fetchImageBlob(image);
     const objectUrl = URL.createObjectURL(blob);
     const previousUrl = imageObjectUrls.get(key);
     if (previousUrl) URL.revokeObjectURL(previousUrl);
@@ -275,19 +332,7 @@ async function preloadTaskImage(task, imageIndex = 0) {
   if (!proxyUrl) return image.url || null;
 
   const promise = (async () => {
-    const headers = {};
-    if (state.apiKey) headers["X-API-Key"] = state.apiKey;
-
-    const response = await fetch(proxyUrl, {
-      method: "GET",
-      headers,
-      cache: "force-cache"
-    });
-    if (!response.ok) {
-      throw new Error(await readErrorMessage(response, `图片读取失败，HTTP ${response.status}`));
-    }
-
-    const blob = await response.blob();
+    const blob = await fetchImageBlob(image);
     const objectUrl = URL.createObjectURL(blob);
     const previousUrl = imageObjectUrls.get(key);
     if (previousUrl) URL.revokeObjectURL(previousUrl);
@@ -323,6 +368,220 @@ async function openTaskImage(taskId, imageIndex) {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   } catch (error) {
     alert(friendlyError(error.message));
+  }
+}
+
+function crc32(bytes) {
+  let value = 0xffffffff;
+  for (let index = 0; index < bytes.length; index += 1) {
+    value = (value >>> 8) ^ ZIP_CRC32_TABLE[(value ^ bytes[index]) & 0xff];
+  }
+  return (value ^ 0xffffffff) >>> 0;
+}
+
+function zipDosDateTime(value) {
+  const date = value instanceof Date && Number.isFinite(value.getTime()) ? value : new Date();
+  const year = Math.min(2107, Math.max(1980, date.getFullYear()));
+  return {
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()
+  };
+}
+
+function imageExtension(blob) {
+  const mime = String(blob?.type || "").split(";", 1)[0].toLowerCase();
+  const extensions = {
+    "image/avif": "avif",
+    "image/gif": "gif",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp"
+  };
+  return extensions[mime] || "png";
+}
+
+function formatDownloadTimestamp(value = Date.now()) {
+  const numericValue = value instanceof Date ? value.getTime() : Number(value);
+  const date = Number.isFinite(numericValue) && numericValue > 0 ? new Date(numericValue) : new Date();
+  const twoDigits = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}${twoDigits(date.getMonth() + 1)}${twoDigits(date.getDate())}_${twoDigits(date.getHours())}${twoDigits(date.getMinutes())}${twoDigits(date.getSeconds())}`;
+}
+
+function safeDownloadName(value) {
+  const name = String(value || "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 42);
+  return name || "image";
+}
+
+function imageDownloadName(task, imageIndex, blob) {
+  const taskSuffix = String(task?.id || "task").replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || "task";
+  const timestamp = formatDownloadTimestamp(task?.finishedAt || task?.createdAt);
+  const position = String(imageIndex + 1).padStart(2, "0");
+  return `${timestamp}_${taskSuffix}_${position}_${safeDownloadName(getTaskPrompt(task))}.${imageExtension(blob)}`;
+}
+
+async function createZipBlob(files) {
+  const encoder = new TextEncoder();
+  const localChunks = [];
+  const centralChunks = [];
+  const entries = [];
+  let offset = 0;
+  const preparedFiles = [];
+
+  for (const file of files) {
+    preparedFiles.push({
+      ...file,
+      nameBytes: encoder.encode(file.name),
+      bytes: new Uint8Array(await file.blob.arrayBuffer())
+    });
+  }
+
+  // Image files are already compressed, so ZIP store mode avoids another expensive pass.
+  if (preparedFiles.length > 0xffff) throw new Error("一次最多打包 65535 张图片。");
+
+  preparedFiles.forEach((file) => {
+    if (file.nameBytes.byteLength > 0xffff || file.bytes.byteLength > 0xffffffff) {
+      throw new Error("图片文件名或大小超出 ZIP 格式限制。");
+    }
+
+    const { time, date } = zipDosDateTime(file.date);
+    const checksum = crc32(file.bytes);
+    const header = new Uint8Array(30 + file.nameBytes.byteLength);
+    const view = new DataView(header.buffer);
+    view.setUint32(0, 0x04034b50, true);
+    view.setUint16(4, 20, true);
+    view.setUint16(6, 0x0800, true);
+    view.setUint16(8, 0, true);
+    view.setUint16(10, time, true);
+    view.setUint16(12, date, true);
+    view.setUint32(14, checksum, true);
+    view.setUint32(18, file.bytes.byteLength, true);
+    view.setUint32(22, file.bytes.byteLength, true);
+    view.setUint16(26, file.nameBytes.byteLength, true);
+    view.setUint16(28, 0, true);
+    header.set(file.nameBytes, 30);
+
+    if (offset + header.byteLength + file.bytes.byteLength > 0xffffffff) {
+      throw new Error("图片总大小超出 ZIP 格式限制，请分批下载。");
+    }
+
+    localChunks.push(header, file.bytes);
+    entries.push({
+      nameBytes: file.nameBytes,
+      checksum,
+      size: file.bytes.byteLength,
+      time,
+      date,
+      offset
+    });
+    offset += header.byteLength + file.bytes.byteLength;
+  });
+
+  const centralOffset = offset;
+  entries.forEach((entry) => {
+    const header = new Uint8Array(46 + entry.nameBytes.byteLength);
+    const view = new DataView(header.buffer);
+    view.setUint32(0, 0x02014b50, true);
+    view.setUint16(4, 20, true);
+    view.setUint16(6, 20, true);
+    view.setUint16(8, 0x0800, true);
+    view.setUint16(10, 0, true);
+    view.setUint16(12, entry.time, true);
+    view.setUint16(14, entry.date, true);
+    view.setUint32(16, entry.checksum, true);
+    view.setUint32(20, entry.size, true);
+    view.setUint32(24, entry.size, true);
+    view.setUint16(28, entry.nameBytes.byteLength, true);
+    view.setUint16(30, 0, true);
+    view.setUint16(32, 0, true);
+    view.setUint16(34, 0, true);
+    view.setUint16(36, 0, true);
+    view.setUint32(38, 0, true);
+    view.setUint32(42, entry.offset, true);
+    header.set(entry.nameBytes, 46);
+    centralChunks.push(header);
+    offset += header.byteLength;
+  });
+
+  const centralSize = offset - centralOffset;
+  const footer = new Uint8Array(22);
+  const view = new DataView(footer.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(4, 0, true);
+  view.setUint16(6, 0, true);
+  view.setUint16(8, entries.length, true);
+  view.setUint16(10, entries.length, true);
+  view.setUint32(12, centralSize, true);
+  view.setUint32(16, centralOffset, true);
+  view.setUint16(20, 0, true);
+
+  return new Blob([...localChunks, ...centralChunks, footer], { type: "application/zip" });
+}
+
+function saveBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+async function downloadSelectedImages() {
+  if (batchDownloadState.active) return;
+
+  const entries = selectedDownloadEntries();
+  if (!entries.length) {
+    alert("请先勾选至少一个已完成的任务。");
+    return;
+  }
+
+  batchDownloadState = { active: true, completed: 0, total: entries.length };
+  syncDownloadButton();
+
+  const files = [];
+  const failures = [];
+  try {
+    for (const entry of entries) {
+      try {
+        const blob = await fetchImageBlob(entry.image);
+        files.push({
+          blob,
+          name: imageDownloadName(entry.task, entry.imageIndex, blob),
+          date: new Date(Number(entry.task.finishedAt || entry.task.createdAt) || Date.now())
+        });
+      } catch (error) {
+        failures.push(error);
+      } finally {
+        batchDownloadState.completed += 1;
+        syncDownloadButton();
+      }
+    }
+
+    if (!files.length) throw new Error("未能读取已选图片，请确认图片仍在 48 小时保留期内且令牌有效。");
+
+    if (files.length === 1) {
+      saveBlob(files[0].blob, files[0].name);
+    } else {
+      const archive = await createZipBlob(files);
+      saveBlob(archive, `AI-images_${formatDownloadTimestamp()}.zip`);
+    }
+
+    if (failures.length) {
+      alert(`已下载 ${files.length} 张图片，${failures.length} 张图片读取失败。`);
+    }
+  } catch (error) {
+    alert(friendlyError(error.message));
+  } finally {
+    batchDownloadState = { active: false, completed: 0, total: 0 };
+    syncDownloadButton();
   }
 }
 
@@ -1156,6 +1415,10 @@ mentionMenu?.addEventListener("click", (event) => {
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   submitTask();
+});
+
+downloadBtn?.addEventListener("click", () => {
+  downloadSelectedImages();
 });
 
 clearBtn.addEventListener("click", () => {
