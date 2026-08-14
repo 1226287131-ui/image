@@ -18,6 +18,7 @@ const MAX_REFERENCE_IMAGES = 16;
 const ONLINE_WINDOW_SECONDS = 90;
 const TASK_RETENTION_HOURS = 48;
 const CLEANUP_INTERVAL_SECONDS = 600;
+const RUNNING_TASK_STALE_MS = 30 * 60 * 1000;
 
 function json_response(array $data, int $status = 200)
 {
@@ -114,6 +115,12 @@ function cleanup_lock_path(): string
     return root_path('storage/cleanup.lock');
 }
 
+function running_task_index_path(): string
+{
+    ensure_dir(root_path('storage'));
+    return root_path('storage/running-tasks.json');
+}
+
 function visitor_path(string $visitorId): string
 {
     ensure_dir(root_path('storage/visitors'));
@@ -160,6 +167,12 @@ function save_task(string $taskId, array $task)
     $bytes = file_put_contents($path, $json, LOCK_EX);
     if ($bytes === false) {
         throw new RuntimeException('Failed to write task file. Check storage/tasks permissions.');
+    }
+
+    try {
+        update_running_task_index($task);
+    } catch (Throwable $e) {
+        error_log('Failed to update running task index: ' . $e->getMessage());
     }
 }
 
@@ -228,26 +241,122 @@ function count_online_visitors(): int
     return $count;
 }
 
-function count_running_tasks(): int
+function active_task_status(string $status): bool
 {
-    ensure_dir(root_path('storage/tasks'));
-    $count = 0;
+    return $status === 'queued' || $status === 'running';
+}
 
-    foreach (glob(root_path('storage/tasks/task_*.json')) ?: [] as $path) {
-        $raw = is_file($path) ? file_get_contents($path) : false;
-        if (!$raw) continue;
+function read_running_task_index($handle): array
+{
+    rewind($handle);
+    $raw = stream_get_contents($handle);
+    $data = $raw ? json_decode((string)$raw, true) : [];
+    $tasks = is_array($data['tasks'] ?? null) ? $data['tasks'] : [];
+    $cutoff = now_ms() - RUNNING_TASK_STALE_MS;
+    $valid = [];
 
-        $task = json_decode((string)$raw, true);
-        if (!is_array($task)) continue;
-
-        $task = mark_stale_task_if_needed($task);
-        $status = (string)($task['status'] ?? '');
-        if ($status === 'queued' || $status === 'running') {
-            $count++;
-        }
+    foreach ($tasks as $taskId => $updatedAt) {
+        if (!is_string($taskId) || !preg_match('/^task_[a-f0-9]{32}$/', $taskId)) continue;
+        $updatedAt = (int)$updatedAt;
+        if ($updatedAt >= $cutoff) $valid[$taskId] = $updatedAt;
     }
 
-    return $count;
+    return $valid;
+}
+
+function write_running_task_index($handle, array $tasks): void
+{
+    $json = json_encode([
+        'updatedAt' => now_ms(),
+        'tasks' => $tasks,
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($json === false) return;
+
+    ftruncate($handle, 0);
+    rewind($handle);
+    fwrite($handle, $json);
+    fflush($handle);
+}
+
+function update_running_task_index(array $task): void
+{
+    $taskId = (string)($task['id'] ?? '');
+    if (!preg_match('/^task_[a-f0-9]{32}$/', $taskId)) return;
+
+    $handle = @fopen(running_task_index_path(), 'c+');
+    if (!$handle || !flock($handle, LOCK_EX)) {
+        if (is_resource($handle)) fclose($handle);
+        return;
+    }
+
+    try {
+        $tasks = read_running_task_index($handle);
+        $status = (string)($task['status'] ?? '');
+        if (active_task_status($status)) {
+            $tasks[$taskId] = (int)($task['updatedAt'] ?? now_ms());
+        } else {
+            unset($tasks[$taskId]);
+        }
+        write_running_task_index($handle, $tasks);
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
+function replace_running_task_index(array $tasks): int
+{
+    $handle = @fopen(running_task_index_path(), 'c+');
+    if (!$handle || !flock($handle, LOCK_EX)) {
+        if (is_resource($handle)) fclose($handle);
+        return count($tasks);
+    }
+
+    try {
+        write_running_task_index($handle, $tasks);
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+
+    return count($tasks);
+}
+
+function rebuild_running_task_index(): int
+{
+    $tasks = [];
+    $cutoff = now_ms() - RUNNING_TASK_STALE_MS;
+    foreach (glob(root_path('storage/tasks/task_*.json')) ?: [] as $path) {
+        $head = file_get_contents($path, false, null, 0, 8192);
+        if (!is_string($head)) continue;
+        if (!preg_match('/"status"\s*:\s*"(?:queued|running)"/', $head)) continue;
+        $updatedAt = 0;
+        if (preg_match('/"updatedAt"\s*:\s*(\d+)/', $head, $matches)) {
+            $updatedAt = (int)$matches[1];
+        }
+        if ($updatedAt < $cutoff) continue;
+        $taskId = pathinfo($path, PATHINFO_FILENAME);
+        if (preg_match('/^task_[a-f0-9]{32}$/', $taskId)) $tasks[$taskId] = $updatedAt;
+    }
+
+    return replace_running_task_index($tasks);
+}
+
+function count_running_tasks(): int
+{
+    $path = running_task_index_path();
+    $handle = @fopen($path, 'c+');
+    if (!$handle || !flock($handle, LOCK_SH)) {
+        if (is_resource($handle)) fclose($handle);
+        return 0;
+    }
+
+    try {
+        return count(read_running_task_index($handle));
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
 }
 
 function task_expired(array $task, int $cutoffMs): bool
@@ -294,6 +403,32 @@ function delete_task_images(array $task): int
     return $deleted;
 }
 
+function latest_cleanup_status(): array
+{
+    $path = cleanup_state_path();
+    $raw = is_file($path) ? file_get_contents($path) : false;
+    $data = $raw ? json_decode((string)$raw, true) : null;
+    if (is_array($data)) return $data;
+
+    return [
+        'skipped' => true,
+        'lastRun' => 0,
+        'deletedTasks' => 0,
+        'deletedImages' => 0,
+    ];
+}
+
+function compact_terminal_task_payload(string $path, array $task): bool
+{
+    if (!array_key_exists('payload', $task)) return false;
+    $status = (string)($task['status'] ?? '');
+    if ($status !== 'succeeded' && $status !== 'failed') return false;
+
+    unset($task['payload']);
+    $json = json_encode($task, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    return $json !== false && file_put_contents($path, $json, LOCK_EX) !== false;
+}
+
 function cleanup_old_artifacts(bool $force = false): array
 {
     $now = now_ms();
@@ -333,6 +468,8 @@ function cleanup_old_artifacts(bool $force = false): array
 
     $deletedTasks = 0;
     $deletedImages = 0;
+    $deletedLocks = 0;
+    $compactedTasks = 0;
     $cutoffMs = $now - TASK_RETENTION_HOURS * 60 * 60 * 1000;
     $cutoffSeconds = (int)floor($cutoffMs / 1000);
 
@@ -340,12 +477,21 @@ function cleanup_old_artifacts(bool $force = false): array
     foreach (glob(root_path('storage/tasks/task_*.json')) ?: [] as $path) {
         $raw = is_file($path) ? file_get_contents($path) : false;
         $task = $raw ? json_decode((string)$raw, true) : null;
-        if (!is_array($task) || !task_expired($task, $cutoffMs)) continue;
+        if (!is_array($task)) continue;
+        if (!task_expired($task, $cutoffMs)) {
+            if (compact_terminal_task_payload($path, $task)) $compactedTasks++;
+            continue;
+        }
 
         $deletedImages += delete_task_images($task);
         if (@unlink($path)) {
             $deletedTasks++;
         }
+    }
+
+    foreach (glob(root_path('storage/tasks/task_*.lock')) ?: [] as $path) {
+        $mtime = filemtime($path);
+        if ($mtime !== false && $mtime < $cutoffSeconds && @unlink($path)) $deletedLocks++;
     }
 
     ensure_dir(root_path('outputs'));
@@ -362,11 +508,15 @@ function cleanup_old_artifacts(bool $force = false): array
         'lastRun' => $now,
         'deletedTasks' => $deletedTasks,
         'deletedImages' => $deletedImages,
+        'deletedLocks' => $deletedLocks,
+        'compactedTasks' => $compactedTasks,
     ];
 
     file_put_contents($statePath, json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX);
     flock($lock, LOCK_UN);
     fclose($lock);
+
+    rebuild_running_task_index();
 
     return $result;
 }
@@ -1096,6 +1246,9 @@ function process_task(array $task, string $apiKey): array
         }
     }
 
+    if (($task['status'] ?? '') === 'succeeded' || ($task['status'] ?? '') === 'failed') {
+        unset($task['payload']);
+    }
     $task['updatedAt'] = now_ms();
     return $task;
 }

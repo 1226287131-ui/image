@@ -6,14 +6,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET' && $_SERVER['REQUEST_METHOD'] !== 'POST
 }
 
 try {
-    $cleanup = cleanup_old_artifacts();
     touch_current_visitor();
     json_response([
         'runningTasks' => count_running_tasks(),
         'onlineVisitors' => count_online_visitors(),
         'onlineWindowSeconds' => ONLINE_WINDOW_SECONDS,
         'retentionHours' => TASK_RETENTION_HOURS,
-        'cleanup' => $cleanup,
+        'cleanup' => latest_cleanup_status(),
         'updatedAt' => now_ms(),
     ]);
 } catch (Throwable $e) {

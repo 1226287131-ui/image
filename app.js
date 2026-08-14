@@ -43,7 +43,7 @@ const onlineUsersCount = document.querySelector("#onlineUsersCount");
 const NOTICE_HIDDEN_DATE_KEY = "retention_notice_hidden_date";
 const HISTORY_KEY = "image_tasks";
 const MODEL_KEY = "image_model";
-const SITE_STATUS_POLL_MS = 15000;
+const SITE_STATUS_POLL_MS = 60000;
 const TASK_RETENTION_MS = 48 * 60 * 60 * 1000;
 const MAX_HISTORY_TASKS = 60;
 const IMAGE_LOAD_CONCURRENCY = 2;
@@ -147,6 +147,7 @@ let dragDepth = 0;
 let batchDownloadState = { active: false, completed: 0, total: 0 };
 let activeImageLoads = 0;
 let galleryImageObserver = null;
+let siteStatusRequestInFlight = false;
 const ZIP_CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
   for (let index = 0; index < table.length; index += 1) {
@@ -1070,6 +1071,8 @@ function setStatusNumber(element, value) {
 }
 
 async function refreshSiteStatus() {
+  if (siteStatusRequestInFlight || document.hidden) return;
+  siteStatusRequestInFlight = true;
   try {
     const response = await fetch("/api/site-status.php", {
       method: "GET",
@@ -1082,13 +1085,17 @@ async function refreshSiteStatus() {
   } catch (error) {
     setStatusNumber(runningTasksCount, null);
     setStatusNumber(onlineUsersCount, null);
+  } finally {
+    siteStatusRequestInFlight = false;
   }
 }
 
 function startSiteStatusPolling() {
   refreshSiteStatus();
   if (siteStatusTimer) clearInterval(siteStatusTimer);
-  siteStatusTimer = setInterval(refreshSiteStatus, SITE_STATUS_POLL_MS);
+  siteStatusTimer = setInterval(() => {
+    if (!document.hidden) refreshSiteStatus();
+  }, SITE_STATUS_POLL_MS);
 }
 
 function syncEmptyState() {
