@@ -32,7 +32,22 @@ try {
         json_response(['error' => 'Image not found.'], 404);
     }
 
-    $payload = image_bytes_from_task_image($image, $apiKey);
+    $slot = null;
+    if (($image['sourceType'] ?? '') === 'url') {
+        $slot = acquire_image_download_slot();
+        if ($slot === null) {
+            header('Retry-After: 2');
+            json_response(['error' => '图片加载请求较多，请稍后重试。'], 429);
+        }
+    }
+
+    try {
+        @set_time_limit(IMAGE_DOWNLOAD_TIMEOUT_SECONDS + 5);
+        @ini_set('max_execution_time', (string)(IMAGE_DOWNLOAD_TIMEOUT_SECONDS + 5));
+        $payload = image_bytes_from_task_image($image, $apiKey);
+    } finally {
+        release_image_download_slot($slot);
+    }
     $contentType = (string)($payload['contentType'] ?? 'image/png');
     $bytes = (string)($payload['bytes'] ?? '');
 
@@ -40,6 +55,7 @@ try {
     header('Content-Type: ' . $contentType);
     header('Content-Length: ' . strlen($bytes));
     header('Cache-Control: private, max-age=604800, immutable');
+    header('Vary: X-API-Key, Cookie');
     echo $bytes;
     exit;
 } catch (Throwable $e) {

@@ -8,6 +8,8 @@ error_reporting(E_ALL);
 const API_BASE_URL = 'https://api.kkone.vip';
 const ASSET_BASE_URL = 'https://gimg.mooko.ai';
 const REQUEST_TIMEOUT_SECONDS = 1200;
+const IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 35;
+const MAX_CONCURRENT_IMAGE_DOWNLOADS = 3;
 const SUPPORTED_RATIOS = ['1:1', '5:4', '4:3', '3:2', '16:9', '21:9', '9:16', '4:5', '3:4', '2:3'];
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 const NANO_BANANA_2_MODEL = 'Nano Banana 2';
@@ -572,18 +574,19 @@ function assert_image_bytes(string $bytes, string $contentType = '')
     }
 }
 
-function http_request(string $url, string $method, array $headers, $body): array
+function http_request(string $url, string $method, array $headers, $body, ?int $timeoutSeconds = null, ?string $timeoutMessage = null): array
 {
     if (!function_exists('curl_init')) {
         throw new RuntimeException('PHP cURL extension is required.');
     }
+    $timeout = max(1, $timeoutSeconds ?? REQUEST_TIMEOUT_SECONDS);
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST => $method,
         CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_TIMEOUT => REQUEST_TIMEOUT_SECONDS,
-        CURLOPT_CONNECTTIMEOUT => 30,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_CONNECTTIMEOUT => min(30, $timeout),
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_SSL_VERIFYPEER => true,
     ]);
@@ -599,6 +602,7 @@ function http_request(string $url, string $method, array $headers, $body): array
 
     if ($response === false) {
         if ($errno === CURLE_OPERATION_TIMEDOUT) {
+            if ($timeoutMessage !== null) throw new RuntimeException($timeoutMessage);
             throw new RuntimeException('中转站生成超时：接口 20 分钟内没有返回结果。请减少生成张数，或降低分辨率/质量后重试。');
         }
         throw new RuntimeException('中转站网络请求失败：' . ($error ?: '未知网络错误'));
@@ -706,6 +710,28 @@ function image_download_headers(string $source, string $apiKey): array
     return ['Authorization: Bearer ' . $apiKey];
 }
 
+function acquire_image_download_slot()
+{
+    $directory = root_path('storage/image-download-slots');
+    ensure_dir($directory);
+
+    for ($index = 0; $index < MAX_CONCURRENT_IMAGE_DOWNLOADS; $index++) {
+        $handle = fopen($directory . '/slot-' . $index . '.lock', 'c');
+        if ($handle === false) continue;
+        if (flock($handle, LOCK_EX | LOCK_NB)) return $handle;
+        fclose($handle);
+    }
+
+    return null;
+}
+
+function release_image_download_slot($handle): void
+{
+    if (!is_resource($handle)) return;
+    flock($handle, LOCK_UN);
+    fclose($handle);
+}
+
 function image_bytes_from_task_image(array $image, string $apiKey = ''): array
 {
     $sourceType = (string)($image['sourceType'] ?? '');
@@ -737,7 +763,7 @@ function image_bytes_from_task_image(array $image, string $apiKey = ''): array
     }
 
     $headers = image_download_headers($source, $apiKey);
-    $result = http_request($source, 'GET', $headers, null);
+    $result = http_request($source, 'GET', $headers, null, IMAGE_DOWNLOAD_TIMEOUT_SECONDS, '图片读取超时，请稍后重试。');
     if ($result['status'] < 200 || $result['status'] >= 300) {
         throw new RuntimeException('Image download failed: ' . $result['status'] . ' ' . substr($result['body'], 0, 300));
     }

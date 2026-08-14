@@ -44,6 +44,9 @@ const NOTICE_HIDDEN_DATE_KEY = "retention_notice_hidden_date";
 const HISTORY_KEY = "image_tasks";
 const MODEL_KEY = "image_model";
 const SITE_STATUS_POLL_MS = 15000;
+const TASK_RETENTION_MS = 48 * 60 * 60 * 1000;
+const MAX_HISTORY_TASKS = 60;
+const IMAGE_LOAD_CONCURRENCY = 2;
 const MAX_REFERENCE_IMAGES = 16;
 const MAX_REFERENCE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_REFERENCE_BYTES = 24 * 1024 * 1024;
@@ -82,10 +85,37 @@ function modelLabel(model) {
   return MODEL_OPTIONS[normalizeModel(model)].label;
 }
 
+function taskHistoryTimestamp(task) {
+  const values = [task?.finishedAt, task?.updatedAt, task?.startedAt, task?.createdAt];
+  for (const value of values) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+    return timestamp < 100000000000 ? timestamp * 1000 : timestamp;
+  }
+  return 0;
+}
+
 function loadHistory() {
   try {
     const tasks = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-    return Array.isArray(tasks) ? tasks : [];
+    if (!Array.isArray(tasks)) {
+      localStorage.removeItem(HISTORY_KEY);
+      return [];
+    }
+
+    const cutoff = Date.now() - TASK_RETENTION_MS;
+    const retainedTasks = tasks
+      .filter((task) => task && typeof task === "object" && taskHistoryTimestamp(task) >= cutoff)
+      .slice(0, MAX_HISTORY_TASKS);
+
+    if (retainedTasks.length !== tasks.length) {
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(retainedTasks));
+      } catch (error) {
+        console.warn("过期生成历史清理失败，可能是浏览器存储空间不足。", error);
+      }
+    }
+    return retainedTasks;
   } catch (error) {
     localStorage.removeItem(HISTORY_KEY);
     return [];
@@ -109,10 +139,14 @@ const selectedTaskIds = new Set();
 const taskPreviewIndexes = new Map();
 const imageObjectUrls = new Map();
 const imageLoadPromises = new Map();
+const imageLoadFailures = new Set();
+const imageLoadQueue = [];
 let lightboxState = { taskId: null, imageIndex: 0 };
 let siteStatusTimer = null;
 let dragDepth = 0;
 let batchDownloadState = { active: false, completed: 0, total: 0 };
+let activeImageLoads = 0;
+let galleryImageObserver = null;
 const ZIP_CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
   for (let index = 0; index < table.length; index += 1) {
@@ -244,6 +278,7 @@ function revokeTaskImageUrls(task) {
       imageObjectUrls.delete(key);
     }
     imageLoadPromises.delete(key);
+    imageLoadFailures.delete(key);
   });
 }
 
@@ -266,18 +301,49 @@ async function fetchImageBlob(image) {
   const headers = {};
   if (proxyUrl && state.apiKey) headers["X-API-Key"] = state.apiKey;
 
-  const response = await fetch(sourceUrl, {
-    method: "GET",
-    headers,
-    cache: "force-cache"
-  });
+  let response;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    response = await fetch(sourceUrl, {
+      method: "GET",
+      headers,
+      cache: "force-cache"
+    });
+    if (response.status !== 429) break;
+    const retryAfter = Math.min(3, Math.max(1, Number(response.headers.get("Retry-After")) || 2));
+    await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+  }
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, `图片读取失败，HTTP ${response.status}`));
+    const error = new Error(await readErrorMessage(response, `图片读取失败，HTTP ${response.status}`));
+    error.status = response.status;
+    throw error;
   }
 
   const blob = await response.blob();
   if (!blob.size) throw new Error("图片文件为空。");
   return blob;
+}
+
+function drainImageLoadQueue() {
+  while (activeImageLoads < IMAGE_LOAD_CONCURRENCY && imageLoadQueue.length) {
+    const job = imageLoadQueue.shift();
+    activeImageLoads += 1;
+    Promise.resolve()
+      .then(job.load)
+      .then(job.resolve, job.reject)
+      .finally(() => {
+        activeImageLoads -= 1;
+        drainImageLoadQueue();
+      });
+  }
+}
+
+function enqueueImageLoad(load, priority = false) {
+  return new Promise((resolve, reject) => {
+    const job = { load, resolve, reject };
+    if (priority) imageLoadQueue.unshift(job);
+    else imageLoadQueue.push(job);
+    drainImageLoadQueue();
+  });
 }
 
 async function ensureTaskImageLoaded(taskId, imageIndex, options = {}) {
@@ -286,25 +352,28 @@ async function ensureTaskImageLoaded(taskId, imageIndex, options = {}) {
   if (!task || !image) return null;
 
   const key = taskImageKey(taskId, imageIndex);
-  if (!options.force && imageObjectUrls.has(key)) {
+  if (options.force) imageLoadFailures.delete(key);
+  if (imageObjectUrls.has(key)) {
     return imageObjectUrls.get(key);
   }
-  if (!options.force && imageLoadPromises.has(key)) {
+  if (imageLoadPromises.has(key)) {
     return imageLoadPromises.get(key);
   }
+  if (!options.force && imageLoadFailures.has(key)) return null;
 
   const proxyUrl = proxyImageUrl(image);
   if (!proxyUrl) return image.url || null;
 
-  const promise = (async () => {
+  const promise = enqueueImageLoad(async () => {
     const blob = await fetchImageBlob(image);
     const objectUrl = URL.createObjectURL(blob);
     const previousUrl = imageObjectUrls.get(key);
     if (previousUrl) URL.revokeObjectURL(previousUrl);
     imageObjectUrls.set(key, objectUrl);
     return objectUrl;
-  })()
+  }, Boolean(options.priority))
     .catch((error) => {
+      if (error.status !== 429) imageLoadFailures.add(key);
       console.warn(`任务 ${taskId} 第 ${imageIndex + 1} 张图片加载失败`, error);
       throw error;
     })
@@ -331,15 +400,16 @@ async function preloadTaskImage(task, imageIndex = 0) {
   const proxyUrl = proxyImageUrl(image);
   if (!proxyUrl) return image.url || null;
 
-  const promise = (async () => {
+  const promise = enqueueImageLoad(async () => {
     const blob = await fetchImageBlob(image);
     const objectUrl = URL.createObjectURL(blob);
     const previousUrl = imageObjectUrls.get(key);
     if (previousUrl) URL.revokeObjectURL(previousUrl);
     imageObjectUrls.set(key, objectUrl);
     return objectUrl;
-  })()
+  }, true)
     .catch((error) => {
+      if (error.status !== 429) imageLoadFailures.add(key);
       console.warn(`任务 ${task.id} 第 ${imageIndex + 1} 张图片预加载失败`, error);
       throw error;
     })
@@ -358,13 +428,39 @@ function hydrateTaskImages(task) {
   });
 }
 
+function observeGalleryImages() {
+  if (!gallery) return;
+
+  if (!("IntersectionObserver" in window)) {
+    state.tasks.slice(0, 2).forEach(hydrateTaskImages);
+    return;
+  }
+
+  if (!galleryImageObserver) {
+    galleryImageObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        galleryImageObserver.unobserve(entry.target);
+        const task = state.tasks.find((item) => item.id === entry.target.dataset.taskId);
+        hydrateTaskImages(task);
+      });
+    }, { rootMargin: "480px 0px" });
+  }
+
+  galleryImageObserver.disconnect();
+  gallery.querySelectorAll(".task-card[data-task-id]").forEach((card) => {
+    const task = state.tasks.find((item) => item.id === card.dataset.taskId);
+    if (task?.status === "succeeded" && task.images?.length) galleryImageObserver.observe(card);
+  });
+}
+
 async function openTaskImage(taskId, imageIndex) {
   const task = state.tasks.find((item) => item.id === taskId);
   const image = task?.images?.[imageIndex];
   if (!task || !image) return;
 
   try {
-    const url = await ensureTaskImageLoaded(taskId, imageIndex);
+    const url = await ensureTaskImageLoaded(taskId, imageIndex, { force: true, priority: true });
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   } catch (error) {
     alert(friendlyError(error.message));
@@ -1093,6 +1189,7 @@ function renderGallery() {
       `;
     })
     .join("");
+  observeGalleryImages();
 }
 
 function escapeHtml(value) {
@@ -1157,7 +1254,6 @@ async function pollTask(taskId) {
     else state.tasks[index] = task;
     saveHistory();
     renderGallery();
-    if (task.status === "succeeded") hydrateTaskImages(task);
     if (task.status === "succeeded" || task.status === "failed") {
       clearInterval(polls.get(taskId));
       polls.delete(taskId);
@@ -1454,8 +1550,8 @@ saveApiKeyBtn?.addEventListener("click", () => {
   syncApiKeyCookie(state.apiKey);
   state.tasks.forEach((task) => {
     revokeTaskImageUrls(task);
-    hydrateTaskImages(task);
   });
+  renderGallery();
 });
 
 toggleKeyBtn?.addEventListener("click", () => {
@@ -1483,7 +1579,7 @@ gallery.addEventListener("click", (event) => {
     if (!task?.images?.length) return;
     const previewIndex = clampTaskImageIndex(task, previewButton.dataset.imageIndex);
     taskPreviewIndexes.set(task.id, previewIndex);
-    ensureTaskImageLoaded(task.id, previewIndex).catch(() => {});
+    ensureTaskImageLoaded(task.id, previewIndex, { force: true, priority: true }).catch(() => {});
     renderGallery();
     return;
   }
@@ -1542,7 +1638,6 @@ async function initializeApp() {
   await syncApiKeyCookie(state.apiKey);
 
   renderGallery();
-  state.tasks.forEach(hydrateTaskImages);
 
   getConfig().catch(() => {
     serverState.textContent = "配置读取失败";
