@@ -933,6 +933,69 @@ function public_base_url(): string
     return $scheme . '://' . $host;
 }
 
+function gemini_inline_data_part(string $reference): array
+{
+    $data = (string)preg_replace('/\s+/', '', strip_data_url($reference));
+    if ($data === '' || base64_decode($data, true) === false) {
+        throw new RuntimeException('参考图不是有效的 Base64 图片数据。');
+    }
+
+    return [
+        'inlineData' => [
+            'mimeType' => data_url_mime($reference),
+            'data' => $data,
+        ],
+    ];
+}
+
+function build_gemini_image_request(string $model, string $prompt, string $ratio, string $resolution, array $references): array
+{
+    $parts = [['text' => $prompt]];
+    $summaryParts = [['text' => $prompt]];
+    foreach ($references as $reference) {
+        $part = gemini_inline_data_part((string)$reference);
+        $parts[] = $part;
+        $summaryParts[] = [
+            'inlineData' => [
+                'mimeType' => $part['inlineData']['mimeType'],
+                'data_length' => strlen($part['inlineData']['data']),
+            ],
+        ];
+    }
+
+    $generationConfig = [
+        'responseModalities' => ['IMAGE'],
+        'imageConfig' => [
+            'aspectRatio' => $ratio,
+            'imageSize' => $resolution,
+        ],
+    ];
+    $body = [
+        'contents' => [[
+            'role' => 'user',
+            'parts' => $parts,
+        ]],
+        'generationConfig' => $generationConfig,
+    ];
+
+    return [
+        'provider' => 'gemini',
+        'endpoint' => '/v1beta/models/' . rawurlencode($model) . ':generateContent',
+        'body' => json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+        'isMultipart' => false,
+        'tempFiles' => [],
+        'summaryBody' => [
+            'contents' => [[
+                'role' => 'user',
+                'parts' => $summaryParts,
+            ]],
+            'generationConfig' => $generationConfig,
+            'model' => $model,
+            'image_count' => count($references),
+        ],
+    ];
+}
+
 function build_upstream_request(array $payload, ?int $countOverride = null): array
 {
     $requestedModel = requested_model($payload);
@@ -945,6 +1008,11 @@ function build_upstream_request(array $payload, ?int $countOverride = null): arr
     $model = $upstreamModel;
     $isEdit = count($references) > 0;
     $userPrompt = prompt_with_reference_map($payload, (string)$payload['prompt']);
+
+    if (is_nano_banana_model($requestedModel)) {
+        return build_gemini_image_request($model, $userPrompt, $ratio, $resolution, $references);
+    }
+
     $prompt = (($payload['lockRatio'] ?? true) === false)
         ? $userPrompt
         : "Make the aspect ratio {$ratio}. Output size {$size}.\n" . $userPrompt;
@@ -1104,7 +1172,9 @@ function gemini_items_from_response(array $json): array
 
 function execute_upstream_request(array $upstream, string $apiKey): array
 {
-    $headers = ['Authorization: Bearer ' . $apiKey];
+    $headers = ($upstream['provider'] ?? 'openai') === 'gemini'
+        ? ['x-goog-api-key: ' . $apiKey]
+        : ['Authorization: Bearer ' . $apiKey];
     if (!$upstream['isMultipart']) {
         $headers[] = 'Content-Type: application/json';
     }

@@ -4,27 +4,26 @@
 
 ## 先看当前项目状态
 
-本项目当前线上版本中，`Nano Banana 2` 与 `Nano Banana Pro` 实际使用的是 OpenAI Images 兼容协议：
+本项目当前线上版本中，`Nano Banana 2` 与 `Nano Banana Pro` 使用 Gemini 原生协议：
 
 ```text
-POST /v1/images/generations
-POST /v1/images/edits
+POST /v1beta/models/{model}:generateContent
 ```
 
-并通过 `size` 控制尺寸。这个行为可见于 `api/lib.php` 的 `build_upstream_request()`。
+参考图通过同一条用户消息中的 `inlineData` 传递，并通过 `generationConfig.imageConfig` 控制比例和清晰度。`GPT-image-2` 继续使用 OpenAI Images 兼容协议。
 
-本文件是 Gemini 原生协议的独立参考，不代表当前 `api.kkone.vip` 已经可直接改用此协议。切换前必须确认网关同时支持目标模型和 `/v1beta/models/{model}:generateContent`，并用真实请求测试比例、清晰度和图生图返回值。
+这条路径与无限画布项目使用的 Gemini 请求结构保持一致。切换上游或模型名时，仍需用文生图、单参考图、多参考图和非 `1:1` 比例回归验证。
 
 ## 模型名
 
-`Nano Banana 2`、`Nano Banana Pro` 是本站当前使用的网关模型名，不一定等于 Gemini 原生接口的模型 ID。
+`Nano Banana 2`、`Nano Banana Pro` 是当前网关已验证的 Gemini 模型名，本站会原样 URL 编码后放进原生端点。
 
 ```text
-{banana2_native_model}    Banana 2 在目标 Gemini 网关中的原生模型 ID
-{bananapro_native_model}  Banana Pro 在目标 Gemini 网关中的原生模型 ID
+Nano Banana 2
+Nano Banana Pro
 ```
 
-请求时把占位符替换成网关实际提供的模型 ID。不要假设旧别名 `gemini-3.1-flash-image` 在任意网关都可用。
+不要自行把它们替换成旧别名 `gemini-3.1-flash-image` 或其他猜测的模型 ID。
 
 ## 端点与鉴权
 
@@ -35,15 +34,15 @@ POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateCon
 Content-Type: application/json
 ```
 
-兼容网关常见写法：
+本站 `api.kkone.vip` 当前使用的兼容网关写法：
 
 ```http
 POST https://{gateway-host}/v1beta/models/{model}:generateContent
-Authorization: Bearer {API_KEY}
+x-goog-api-key: {API_KEY}
 Content-Type: application/json
 ```
 
-以目标网关的鉴权要求为准。不要在请求体、前端代码、日志或文档中写入真实 API Key。
+不要在请求体、前端代码、日志或文档中写入真实 API Key。更换上游时，须按新网关要求重新确认鉴权头。
 
 ## 原生字段与本站字段映射
 
@@ -76,7 +75,7 @@ Content-Type: application/json
     }
   ],
   "generationConfig": {
-    "responseModalities": ["TEXT", "IMAGE"],
+    "responseModalities": ["IMAGE"],
     "imageConfig": {
       "aspectRatio": "16:9",
       "imageSize": "2K"
@@ -89,8 +88,8 @@ Content-Type: application/json
 
 ```bash
 curl --request POST \
-  --url "https://{gateway-host}/v1beta/models/{banana2_native_model}:generateContent" \
-  --header "Authorization: Bearer {API_KEY}" \
+  --url "https://{gateway-host}/v1beta/models/Nano%20Banana%202:generateContent" \
+  --header "x-goog-api-key: {API_KEY}" \
   --header "Content-Type: application/json" \
   --data '{
     "contents": [{
@@ -98,7 +97,7 @@ curl --request POST \
       "parts": [{"text": "A premium perfume advertisement, black background, glass reflections, realistic commercial photography."}]
     }],
     "generationConfig": {
-      "responseModalities": ["TEXT", "IMAGE"],
+    "responseModalities": ["IMAGE"],
       "imageConfig": {
         "aspectRatio": "4:5",
         "imageSize": "2K"
@@ -107,7 +106,7 @@ curl --request POST \
   }'
 ```
 
-将 URL 内的模型占位符替换为 `{bananapro_native_model}`，即可使用 Banana Pro 的相同协议结构。
+将 URL 内模型名替换为 `Nano Banana Pro`，即可使用 Banana Pro 的相同协议结构。
 
 ## 图生图
 
@@ -134,7 +133,7 @@ Gemini 原生协议把参考图放入同一条用户消息的 `parts` 数组，�
     }
   ],
   "generationConfig": {
-    "responseModalities": ["TEXT", "IMAGE"],
+    "responseModalities": ["IMAGE"],
     "imageConfig": {
       "aspectRatio": "3:4",
       "imageSize": "2K"
@@ -174,7 +173,7 @@ Gemini 原生协议把参考图放入同一条用户消息的 `parts` 数组，�
     }
   ],
   "generationConfig": {
-    "responseModalities": ["TEXT", "IMAGE"],
+    "responseModalities": ["IMAGE"],
     "imageConfig": {
       "aspectRatio": "1:1",
       "imageSize": "1K"
@@ -207,7 +206,7 @@ Gemini 原生写法：
 ```json
 {
   "generationConfig": {
-    "responseModalities": ["TEXT", "IMAGE"],
+      "responseModalities": ["IMAGE"],
     "imageConfig": {
       "aspectRatio": "9:16",
       "imageSize": "2K"
@@ -261,7 +260,7 @@ Gemini 原生接口通常把图片 Base64 放在响应的 `inlineData` 中：
 - 端点为 `/v1beta/models/{model}:generateContent`。
 - 文本放在 `contents[].parts[].text`。
 - 参考图放在同一 `parts` 数组的 `inlineData` 中。
-- 图片输出请求 `generationConfig.responseModalities: ["TEXT", "IMAGE"]`。
+- 图片输出请求 `generationConfig.responseModalities: ["IMAGE"]`。
 - 比例/清晰度使用 `generationConfig.imageConfig`，并只传模型实际支持的值。
 - 每次请求按 1 张结果处理；需要多张时逐次调用。
 - 从响应 `candidates[].content.parts[].inlineData` 读取图片，不要期待 OpenAI 风格 `data[].url`。
