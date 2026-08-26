@@ -172,6 +172,12 @@ h1 {
   box-shadow: 0 8px 22px rgba(37, 99, 235, 0.22);
 }
 
+.pill.indigo {
+  color: #4338ca;
+  background: #eef2ff;
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
 .pill.orange {
   color: #fff;
   background: linear-gradient(135deg, #fb923c, #f43f5e);
@@ -1404,6 +1410,7 @@ textarea {
   }
 
   .pill.has-selection::after,
+  .pill.selection-ready::after,
   .pill.download-ready::after {
     content: attr(data-selected-count);
     position: absolute;
@@ -1424,6 +1431,10 @@ textarea {
 
   .pill.download-ready::after {
     background: #2563eb;
+  }
+
+  .pill.selection-ready::after {
+    background: #4f46e5;
   }
 
   .pill span {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI 生图</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="/style.css?v=20260814-1" />
+    <link rel="stylesheet" href="/style.css?v=20260826-1" />
   </head>
   <body>
     <header class="top-nav glass">
@@ -32,6 +32,9 @@
         <button class="pill emerald" type="button" data-open="guide"><i class="fa-solid fa-circle-info"></i><span>教程</span></button>
         <button class="pill blue" type="button" id="downloadBtn" disabled title="请先选择已完成的任务" aria-label="批量下载已选图片">
           <i id="downloadIcon" class="fa-solid fa-download"></i><span id="downloadBtnLabel">批量下载</span>
+        </button>
+        <button class="pill indigo" type="button" id="clearSelectionBtn" disabled title="请先选择任务" aria-label="取消所有已选任务">
+          <i class="fa-solid fa-square-minus"></i><span id="clearSelectionBtnLabel">取消选择</span>
         </button>
         <button class="pill orange" type="button" id="clearBtn"><i class="fa-solid fa-trash-can"></i><span>清空</span></button>
         <button class="pill slate" type="button" data-open="settings"><i class="fa-solid fa-gear"></i><span>设置</span></button>
@@ -252,6 +255,6 @@
       <p id="lightboxPrompt"></p>
     </section>
 
-    <script src="/app.js?v=20260814-4" type="module"></script>
+    <script src="/app.js?v=20260826-1" type="module"></script>
   </body>
 </html>

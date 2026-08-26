@@ -13,6 +13,8 @@ const clearBtnLabel = document.querySelector("#clearBtn span");
 const downloadBtn = document.querySelector("#downloadBtn");
 const downloadBtnLabel = document.querySelector("#downloadBtnLabel");
 const downloadIcon = document.querySelector("#downloadIcon");
+const clearSelectionBtn = document.querySelector("#clearSelectionBtn");
+const clearSelectionBtnLabel = document.querySelector("#clearSelectionBtnLabel");
 const serverState = document.querySelector("#serverState");
 const btnModelName = document.querySelector("#btnModelName");
 const btnSizeName = document.querySelector("#btnSizeName");
@@ -167,6 +169,22 @@ const mentionState = {
 
 function syncDeleteButton() {
   const selectedCount = selectedTaskIds.size;
+  if (clearSelectionBtn) {
+    const isDownloading = batchDownloadState.active;
+    const label = selectedCount ? `取消选择(${selectedCount})` : "取消选择";
+    const title = isDownloading
+      ? "批量下载完成后可取消选择"
+      : selectedCount
+        ? `取消选择全部 ${selectedCount} 个任务`
+        : "请先选择任务";
+
+    if (clearSelectionBtnLabel) clearSelectionBtnLabel.textContent = label;
+    clearSelectionBtn.disabled = isDownloading || selectedCount === 0;
+    clearSelectionBtn.title = title;
+    clearSelectionBtn.setAttribute("aria-label", title);
+    clearSelectionBtn.dataset.selectedCount = selectedCount ? String(selectedCount) : "";
+    clearSelectionBtn.classList.toggle("selection-ready", selectedCount > 0);
+  }
   if (clearBtn) {
     if (clearBtnLabel) clearBtnLabel.textContent = selectedCount ? `删除(${selectedCount})` : "清空";
     clearBtn.dataset.selectedCount = selectedCount ? String(selectedCount) : "";
@@ -641,7 +659,7 @@ async function downloadSelectedImages() {
   }
 
   batchDownloadState = { active: true, completed: 0, total: entries.length };
-  syncDownloadButton();
+  syncDeleteButton();
 
   const files = [];
   const failures = [];
@@ -678,7 +696,7 @@ async function downloadSelectedImages() {
     alert(friendlyError(error.message));
   } finally {
     batchDownloadState = { active: false, completed: 0, total: 0 };
-    syncDownloadButton();
+    syncDeleteButton();
   }
 }
 
@@ -1522,6 +1540,12 @@ form.addEventListener("submit", (event) => {
 
 downloadBtn?.addEventListener("click", () => {
   downloadSelectedImages();
+});
+
+clearSelectionBtn?.addEventListener("click", () => {
+  if (batchDownloadState.active || selectedTaskIds.size === 0) return;
+  selectedTaskIds.clear();
+  renderGallery();
 });
 
 clearBtn.addEventListener("click", () => {
