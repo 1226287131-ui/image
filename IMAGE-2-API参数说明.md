@@ -1,26 +1,25 @@
 # gpt-image-2 模型调用参数说明
 
-本文档说明本项目调用 `gpt-image-2` 时使用的参数，以及 URL-only 返回约束。
-这里的“返回 URL”指上游响应中的 `data[].url`；图片内容不得通过 `b64_json`、Data URL 或其他 base64 字段返回。
+本文档说明本项目调用 `gpt-image-2` 时使用的参数与结果传输方式。
 
-## URL-only 约束
+## Base64 结果传输
 
 每次请求都会固定发送：
 
 ```json
 {
-  "response_format": "url"
+  "response_format": "b64_json",
+  "output_format": "png"
 }
 ```
 
-调用方应按 URL-only 约定处理上游响应：
+上游当前返回的临时图片 URL 可能只能由其自身浏览器会话访问，本站改为接收图片字节并通过本域名代理输出：
 
-- 每个图片项必须存在 `data[].url`
-- `url` 必须是 `http://` 或 `https://` 地址
-- `b64_json`、`data:image/...;base64,...` 均视为不合规
-- 客户端只读取 `data[].url`，不读取 `b64_json`
+- 上游结果使用 `data[].b64_json`
+- 服务端校验并保存 Base64 源信息，不向前端暴露原始数据
+- 前端仍只读取本站返回的 `images[].url`
 
-注意：请求参数中的参考图仍可以使用 Data URL（其中包含 base64），这是输入格式；URL-only 约束只针对生成结果。
+注意：请求参数中的参考图仍可以使用 Data URL（其中包含 base64）。
 
 ## 上游接口
 
@@ -41,7 +40,8 @@ Content-Type: application/json
   "n": 1,
   "size": "1024x1024",
   "quality": "auto",
-  "response_format": "url"
+  "response_format": "b64_json",
+  "output_format": "png"
 }
 ```
 
@@ -64,7 +64,8 @@ Content-Type: multipart/form-data
 | `n` | integer/string | 是 | 生成数量；项目单次上游请求通常为 `1` |
 | `size` | string | 是 | 如 `1024x1024`、`1536x864` |
 | `quality` | string | 否 | `auto`、`low`、`medium` 或 `high` |
-| `response_format` | string | 是 | 固定为 `url`，禁止改为 `b64_json` |
+| `response_format` | string | 是 | 固定为 `b64_json` |
+| `output_format` | string | 是 | 固定为 `png` |
 
 文件字段：
 
@@ -80,7 +81,7 @@ Content-Type: multipart/form-data
 | `n` | integer | 否 | 上游单次生成数量；站内通过 `count` 控制，范围 `1-10`，多张时按张顺序调用 |
 | `size` | string | 否 | 上游尺寸；站内优先使用 `exactSize`，否则根据 `ratio` + `resolution` 计算 |
 | `quality` | string | 否 | 默认 `auto` |
-| `response_format` | string | 是 | 后端强制为 `url`，调用方不能覆盖 |
+| `response_format` | string | 是 | 后端强制为 `b64_json`，调用方不能覆盖 |
 | `image` / `image[i]` | file | 编辑时必填 | 由 `referenceImages` 转换为 multipart 文件 |
 
 项目对外的异步接口使用更高层的参数：
@@ -121,7 +122,7 @@ curl -X POST "https://你的域名/api/check-task.php" \
   }'
 ```
 
-成功时，调用方只读取 `images[].url`：
+成功时，调用方只读取本站代理后的 `images[].url`：
 
 ```json
 {
@@ -135,8 +136,8 @@ curl -X POST "https://你的域名/api/check-task.php" \
 }
 ```
 
-不要读取或依赖 `b64_json`。本项目会隐藏上游源字段，只向外部提供图片代理 URL。
+不要读取或依赖上游 `b64_json`。本项目会隐藏上游源字段，只向外部提供图片代理 URL。
 
 ## 注意事项
 
-请确认上游中转服务支持 `response_format: "url"`。如果上游仍返回 `b64_json`，不要在客户端解码；应检查请求参数或更换支持 URL 响应的上游服务。
+请确认上游中转服务支持 `response_format: "b64_json"`。本站会在服务端解码并校验图片，再提供本域名代理 URL。
