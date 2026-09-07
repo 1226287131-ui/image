@@ -1018,10 +1018,6 @@ function build_upstream_request(array $payload, ?int $countOverride = null): arr
         : "Make the aspect ratio {$ratio}. Output size {$size}.\n" . $userPrompt;
 
     $endpoint = $isEdit ? '/v1/images/edits' : '/v1/images/generations';
-    // GPT-image-2 asset URLs may be private to the upstream image host. Request
-    // image bytes directly so the site can serve them through its existing proxy.
-    $responseFormat = $model === 'gpt-image-2' ? 'b64_json' : 'url';
-    $outputFormat = $model === 'gpt-image-2' ? 'png' : null;
 
     if ($isEdit) {
         $body = [
@@ -1030,9 +1026,8 @@ function build_upstream_request(array $payload, ?int $countOverride = null): arr
             'n' => (string)$count,
             'size' => $size,
             'quality' => $payload['quality'] ?? 'auto',
-            'response_format' => $responseFormat,
+            'response_format' => 'url',
         ];
-        if ($outputFormat !== null) $body['output_format'] = $outputFormat;
         $tempFiles = [];
         foreach ($references as $index => $reference) {
             $tmp = tempnam(sys_get_temp_dir(), 'img_ref_');
@@ -1053,8 +1048,7 @@ function build_upstream_request(array $payload, ?int $countOverride = null): arr
                 'n' => $count,
                 'size' => $size,
                 'quality' => $payload['quality'] ?? 'auto',
-                'response_format' => $responseFormat,
-                'output_format' => $outputFormat,
+                'response_format' => 'url',
                 'image_count' => count($references),
             ],
         ];
@@ -1066,9 +1060,8 @@ function build_upstream_request(array $payload, ?int $countOverride = null): arr
         'n' => $count,
         'size' => $size,
         'quality' => $payload['quality'] ?? 'auto',
-        'response_format' => $responseFormat,
+        'response_format' => 'url',
     ];
-    if ($outputFormat !== null) $body['output_format'] = $outputFormat;
 
     if ($model === 'gpt-image-2' && count($references) > 0) {
         $body['reference_images'] = [];

@@ -235,7 +235,7 @@ Content-Type: application/json
 data[].url
 ```
 
-对于 `gpt-image-2`，本站向上游固定使用 `response_format: "b64_json"` 和 `output_format: "png"`，避免上游私有图片 URL 无法被本站读取。调用方仍只读取任务结果中的 `images[].url`，不要读取上游 `b64_json`。
+对于 `gpt-image-2`，请求参数应固定使用 `response_format: "url"`。调用方只应读取任务结果中的 `images[].url`，不要读取 `b64_json`。
 
 本站会通过 `/api/image-file.php` 代理上游图片地址给前端显示。
 
