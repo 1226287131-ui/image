@@ -35,7 +35,7 @@ Content-Type: application/json
 |---|---:|---:|---|
 | `apiKey` | string | 是 | 用户在中转站申请的 API Key，通常是 `sk-...` |
 | `prompt` | string | 是 | 生图提示词 |
-| `model` | string | 否 | 可选 `gpt-image-2`、`Nano Banana 2` 或 `Nano Banana Pro`。默认 `gpt-image-2` |
+| `model` | string | 否 | 可选 `gpt-image-2`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`Nano Banana 2` 或 `Nano Banana Pro`。默认 `gpt-image-2` |
 | `ratio` | string | 否 | 画面比例，默认 `1:1` |
 | `resolution` | string | 否 | `1K`、`2K`、`4K`，默认 `1K` |
 | `exactSize` | string | 否 | 精确尺寸，如 `1024x1024`。不传时本站会按比例和分辨率自动计算 |
@@ -49,12 +49,15 @@ Content-Type: application/json
 | 模型 | 说明 |
 |---|---|
 | `gpt-image-2` | OpenAI 风格接口，支持文生图、图生图、1K、2K、4K |
+| `gpt-image-2.5-flare` | 与 `gpt-image-2` 共用 OpenAI Images 协议和全部请求参数 |
+| `gpt-image-2.5-sunburst` | 与 `gpt-image-2` 共用 OpenAI Images 协议和全部请求参数 |
 | `Nano Banana 2` | OpenAI Images 兼容链路，实际提交模型名称为 `Nano Banana 2` |
 | `Nano Banana Pro` | OpenAI Images 兼容链路，实际提交模型名称为 `Nano Banana Pro` |
 
 注意：
 
 - 调用方不传 `model` 时，后端默认使用 `gpt-image-2`
+- `gpt-image-2`、`gpt-image-2.5-flare` 与 `gpt-image-2.5-sunburst` 会原样作为上游模型名提交，并共用同一套 OpenAI Images 请求结构
 - `Nano Banana 2` 与 `Nano Banana Pro` 会直接作为上游模型名提交
 - 为兼容旧版本浏览器缓存和旧客户端，传入旧值 `banana2` 或 `gemini-3.1-flash-image` 时，后端仍会自动映射到 `Nano Banana 2`
 - 当 `model = Nano Banana 2` 或 `model = Nano Banana Pro` 时，后端实际调用：
@@ -235,7 +238,7 @@ Content-Type: application/json
 data[].url
 ```
 
-对于 `gpt-image-2`，请求参数应固定使用 `response_format: "url"`。调用方只应读取任务结果中的 `images[].url`，不要读取 `b64_json`。
+对于 `gpt-image-2`、`gpt-image-2.5-flare` 与 `gpt-image-2.5-sunburst`，请求参数应固定使用 `response_format: "url"`。调用方只应读取任务结果中的 `images[].url`，不要读取 `b64_json`。
 
 本站会通过 `/api/image-file.php` 代理上游图片地址给前端显示。
 
@@ -474,7 +477,7 @@ Content-Type: application/json
 很多无限画布直接调用中转站 API 会失败，通常是因为它没有处理本站额外做的这些事情：
 
 1. 本站会把 `ratio + resolution` 换算成真实 `size`
-2. 本站会固定使用 `gpt-image-2`，并开放 1K、2K、4K
+2. 本站会提交请求指定的模型，并为 `gpt-image-2` 系列开放 1K、2K、4K
 3. 本站会把多张图按顺序上传为编辑图输入
 4. 本站会把 `@参考图1` 映射成第 1 张上传参考图
 5. 本站不会把上游返回的图片落盘到本站磁盘；任务只保存图片源信息，前端通过 `/api/image-file.php` 按需取图

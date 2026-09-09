@@ -1,6 +1,6 @@
-# gpt-image-2 模型调用参数说明
+# gpt-image-2 系列模型调用参数说明
 
-本文档说明本项目调用 `gpt-image-2` 时使用的参数，以及 URL-only 返回约束。
+本文档说明本项目调用 `gpt-image-2`、`gpt-image-2.5-flare` 与 `gpt-image-2.5-sunburst` 时使用的参数，以及 URL-only 返回约束。
 这里的“返回 URL”指上游响应中的 `data[].url`；图片内容不得通过 `b64_json`、Data URL 或其他 base64 字段返回。
 
 ## URL-only 约束
@@ -59,7 +59,7 @@ Content-Type: multipart/form-data
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---:|---|
-| `model` | string | 是 | 固定为 `gpt-image-2` |
+| `model` | string | 是 | `gpt-image-2`、`gpt-image-2.5-flare` 或 `gpt-image-2.5-sunburst` |
 | `prompt` | string | 是 | 编辑要求；项目可能会在前面追加比例和参考图映射说明 |
 | `n` | integer/string | 是 | 生成数量；项目单次上游请求通常为 `1` |
 | `size` | string | 是 | 如 `1024x1024`、`1536x864` |
@@ -75,7 +75,7 @@ Content-Type: multipart/form-data
 
 | 参数 | 类型 | 必填 | 本项目行为 |
 |---|---|---:|---|
-| `model` | string | 否 | 不传时使用 `gpt-image-2`；其他模型不会套用本节 URL-only 校验 |
+| `model` | string | 否 | 不传时使用 `gpt-image-2`；`gpt-image-2.5-flare` 与 `gpt-image-2.5-sunburst` 同样套用本节 URL-only 校验 |
 | `prompt` | string | 是 | 生图或编辑提示词 |
 | `n` | integer | 否 | 上游单次生成数量；站内通过 `count` 控制，范围 `1-10`，多张时按张顺序调用 |
 | `size` | string | 否 | 上游尺寸；站内优先使用 `exactSize`，否则根据 `ratio` + `resolution` 计算 |

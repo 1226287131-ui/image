@@ -5,7 +5,7 @@ Upload the contents of this folder to the PHP virtual host web root.
 API documentation:
 
 - `API开发文档.md`: site API and asynchronous task integration.
-- `IMAGE-2-API参数说明.md`: `gpt-image-2` upstream parameters and the URL-only response requirement.
+- `IMAGE-2-API参数说明.md`: `gpt-image-2` 系列上游参数和 URL-only 返回约束。
 - `NANO-BANANA-GEMINI原生协议.md`: Gemini native `generateContent` text-to-image and image-to-image request reference for Nano Banana models.
 
 Required PHP capabilities:

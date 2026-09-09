@@ -12,6 +12,8 @@ const IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 35;
 const MAX_CONCURRENT_IMAGE_DOWNLOADS = 3;
 const SUPPORTED_RATIOS = ['1:1', '5:4', '4:3', '3:2', '16:9', '21:9', '9:16', '4:5', '3:4', '2:3'];
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
+const GPT_IMAGE_2_5_FLARE_MODEL = 'gpt-image-2.5-flare';
+const GPT_IMAGE_2_5_SUNBURST_MODEL = 'gpt-image-2.5-sunburst';
 const NANO_BANANA_2_MODEL = 'Nano Banana 2';
 const NANO_BANANA_PRO_MODEL = 'Nano Banana Pro';
 const MAX_REFERENCE_IMAGES = 16;
@@ -595,18 +597,23 @@ function requested_model(array $payload): string
         return NANO_BANANA_2_MODEL;
     }
     if ($normalized === 'nano banana pro') return NANO_BANANA_PRO_MODEL;
+    if ($normalized === GPT_IMAGE_2_5_FLARE_MODEL) return GPT_IMAGE_2_5_FLARE_MODEL;
+    if ($normalized === GPT_IMAGE_2_5_SUNBURST_MODEL) return GPT_IMAGE_2_5_SUNBURST_MODEL;
 
     return DEFAULT_IMAGE_MODEL;
 }
 
 function requested_model_label(string $model): string
 {
-    return is_nano_banana_model($model) ? $model : 'GPT-image-2';
+    if (is_nano_banana_model($model)) return $model;
+    if ($model === GPT_IMAGE_2_5_FLARE_MODEL) return 'GPT-image-2.5 Flare';
+    if ($model === GPT_IMAGE_2_5_SUNBURST_MODEL) return 'GPT-image-2.5 Sunburst';
+    return 'GPT-image-2';
 }
 
 function upstream_model_name(string $model): string
 {
-    return is_nano_banana_model($model) ? $model : DEFAULT_IMAGE_MODEL;
+    return $model;
 }
 
 function is_nano_banana_model(string $model): bool
