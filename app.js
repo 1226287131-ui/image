@@ -729,7 +729,11 @@ function updateLightbox() {
   lightboxState.imageIndex = imageIndex;
   taskPreviewIndexes.set(task.id, imageIndex);
   lightboxImg.src = getTaskImageViewUrl(task, image, imageIndex);
-  lightboxPrompt.textContent = hasMultipleImages ? `${getTaskPrompt(task)}（第 ${imageIndex + 1} / ${task.images.length} 张）` : getTaskPrompt(task);
+  const promptText = hasMultipleImages ? `${getTaskPrompt(task)}（第 ${imageIndex + 1} / ${task.images.length} 张）` : getTaskPrompt(task);
+  if (lightboxPrompt.textContent !== promptText) {
+    lightboxPrompt.textContent = promptText;
+    lightboxPrompt.scrollTop = 0;
+  }
   ensureTaskImageLoaded(task.id, imageIndex).catch(() => {});
 
   [lightboxPrev, lightboxNext].forEach((button) => {
