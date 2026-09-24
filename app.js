@@ -13,6 +13,9 @@ const clearBtnLabel = document.querySelector("#clearBtn span");
 const downloadBtn = document.querySelector("#downloadBtn");
 const downloadBtnLabel = document.querySelector("#downloadBtnLabel");
 const downloadIcon = document.querySelector("#downloadIcon");
+const selectAllBtn = document.querySelector("#selectAllBtn");
+const selectAllBtnLabel = document.querySelector("#selectAllBtnLabel");
+const selectAllIcon = document.querySelector("#selectAllIcon");
 const clearSelectionBtn = document.querySelector("#clearSelectionBtn");
 const clearSelectionBtnLabel = document.querySelector("#clearSelectionBtnLabel");
 const serverState = document.querySelector("#serverState");
@@ -195,6 +198,37 @@ function syncDeleteButton() {
     clearBtn.classList.toggle("has-selection", selectedCount > 0);
   }
   syncDownloadButton();
+  syncSelectAllButton();
+}
+
+function selectableTasks() {
+  return state.tasks.filter((task) => task && task.id);
+}
+
+function syncSelectAllButton() {
+  if (!selectAllBtn) return;
+
+  const tasks = selectableTasks();
+  const selectedCount = selectedTaskIds.size;
+  const allSelected = tasks.length > 0 && tasks.every((task) => selectedTaskIds.has(task.id));
+  const isDownloading = batchDownloadState.active;
+  const label = allSelected ? "取消全选" : "全选";
+  const title = isDownloading
+    ? "批量下载完成后可调整选择"
+    : allSelected
+      ? `取消全选 ${tasks.length} 个任务`
+      : tasks.length
+        ? `全选 ${tasks.length} 个任务`
+        : "暂无可选择任务";
+
+  if (selectAllBtnLabel) selectAllBtnLabel.textContent = label;
+  if (selectAllIcon) selectAllIcon.className = allSelected ? "fa-solid fa-square-minus" : "fa-solid fa-check-double";
+  selectAllBtn.disabled = isDownloading || tasks.length === 0;
+  selectAllBtn.title = title;
+  selectAllBtn.setAttribute("aria-label", title);
+  selectAllBtn.setAttribute("aria-pressed", String(allSelected));
+  selectAllBtn.dataset.selectedCount = selectedCount ? String(selectedCount) : "";
+  selectAllBtn.classList.toggle("selection-ready", selectedCount > 0);
 }
 
 function selectedDownloadEntries() {
@@ -1546,6 +1580,20 @@ form.addEventListener("submit", (event) => {
 
 downloadBtn?.addEventListener("click", () => {
   downloadSelectedImages();
+});
+
+selectAllBtn?.addEventListener("click", () => {
+  if (batchDownloadState.active) return;
+
+  const tasks = selectableTasks();
+  if (!tasks.length) return;
+
+  const allSelected = tasks.every((task) => selectedTaskIds.has(task.id));
+  tasks.forEach((task) => {
+    if (allSelected) selectedTaskIds.delete(task.id);
+    else selectedTaskIds.add(task.id);
+  });
+  renderGallery();
 });
 
 clearSelectionBtn?.addEventListener("click", () => {
