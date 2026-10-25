@@ -75,6 +75,7 @@ const MODEL_OPTIONS = {
   "gpt-image-2.5-flare": { label: "GPT-image-2.5 Flare" },
   "gpt-image-2.5-sunburst": { label: "GPT-image-2.5 Sunburst" },
   "Nano Banana 2": { label: "Nano Banana 2" },
+  "Nano Banana 2.1": { label: "Nano Banana 2.1", requestModel: "Nano Banana 2" },
   "Nano Banana Pro": { label: "Nano Banana Pro" }
 };
 
@@ -90,6 +91,11 @@ function normalizeModel(model) {
 
 function modelLabel(model) {
   return MODEL_OPTIONS[normalizeModel(model)].label;
+}
+
+function modelRequestName(model) {
+  const normalized = normalizeModel(model);
+  return MODEL_OPTIONS[normalized].requestModel || normalized;
 }
 
 function taskHistoryTimestamp(task) {
@@ -1357,7 +1363,7 @@ async function submitTask() {
     return;
   }
   setBusy(true);
-  const model = state.model;
+  const model = modelRequestName(state.model);
   const payload = {
     prompt,
     model,
@@ -1386,7 +1392,7 @@ async function submitTask() {
       request: {
         prompt,
         model,
-        modelLabel: modelLabel(model),
+        modelLabel: modelLabel(state.model),
         ratio: state.ratio,
         resolution: state.resolution,
         exactSize: state.exactSize,

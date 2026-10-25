@@ -593,7 +593,7 @@ function requested_model(array $payload): string
     $normalized = strtolower($model);
 
     // Keep old browser state and older API clients working after the model rename.
-    if ($normalized === 'nano banana 2' || $normalized === 'banana2' || $normalized === 'gemini-3.1-flash-image') {
+    if ($normalized === 'nano banana 2' || $normalized === 'nano banana 2.1' || $normalized === 'banana2' || $normalized === 'gemini-3.1-flash-image') {
         return NANO_BANANA_2_MODEL;
     }
     if ($normalized === 'nano banana pro') return NANO_BANANA_PRO_MODEL;
