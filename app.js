@@ -74,6 +74,7 @@ const MODEL_OPTIONS = {
   "gpt-image-2": { label: "GPT-image-2" },
   "gpt-image-2.5-flare": { label: "GPT-image-2.5 Flare" },
   "gpt-image-2.5-sunburst": { label: "GPT-image-2.5 Sunburst" },
+  "gpt-image-2.6-cf": { label: "GPT-image-2.6 CF" },
   "Nano Banana 2": { label: "Nano Banana 2" },
   "Nano Banana 2.1": { label: "Nano Banana 2.1", requestModel: "Nano Banana 2" },
   "Nano Banana Pro": { label: "Nano Banana Pro" }
