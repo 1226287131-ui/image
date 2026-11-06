@@ -918,6 +918,69 @@ textarea {
   width: min(500px, 100%);
 }
 
+.gif-fields {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.gif-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gif-fields label {
+  display: block;
+  margin-bottom: 6px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.gif-fields input,
+.gif-fields select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  color: #334155;
+  font-size: 16px;
+}
+
+.gif-fields input:focus-visible,
+.gif-fields select:focus-visible,
+#gifModal button:focus-visible,
+#gifOptionsBtn:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 3px;
+}
+
+.gif-fields small,
+.gif-help {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.gif-summary {
+  color: #4338ca;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+#gifSettingsError:not(:empty) {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+#outputFormatGroup button {
+  min-height: 44px;
+}
+
 .modal-head {
   justify-content: space-between;
   gap: 12px;

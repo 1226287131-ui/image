@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI 生图</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="/style.css?v=20260912-1" />
+    <link rel="stylesheet" href="/style.css?v=20261106-1" />
   </head>
   <body>
     <header class="top-nav glass">
@@ -84,6 +84,11 @@
             <span id="btnSizeName">1:1 (1024x1024)</span>
             <i class="fa-solid fa-chevron-up"></i>
           </button>
+          <button id="gifOptionsBtn" class="option-chip indigo hidden" type="button" data-open="gif" aria-label="设置输出格式和 GIF 动图参数">
+            <i class="fa-solid fa-film" aria-hidden="true"></i>
+            <span id="btnGifName">静态图片 / GIF</span>
+            <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
+          </button>
           <button class="option-chip cyan" type="button" data-open="quality">
             <i class="fa-solid fa-gem"></i>
             <span id="btnQualityName">Auto</span>
@@ -127,10 +132,52 @@
           <button type="button" data-model="gpt-image-2.5-flare">GPT-image-2.5 Flare</button>
           <button type="button" data-model="gpt-image-2.5-sunburst">GPT-image-2.5 Sunburst</button>
           <button type="button" data-model="gpt-image-2.6-cf">GPT-image-2.6 CF</button>
+          <button type="button" data-model="gpt-image-2.6-flare">GPT-image-2.6 Flare · 支持 GIF</button>
+          <button type="button" data-model="gpt-image-2.6-sunburst">GPT-image-2.6 Sunburst · 支持 GIF</button>
           <button type="button" data-model="Nano Banana 2">Nano Banana 2</button>
           <button type="button" data-model="Nano Banana 2.1">Nano Banana 2.1</button>
           <button type="button" data-model="Nano Banana Pro">Nano Banana Pro</button>
         </div>
+      </div>
+    </section>
+
+    <section id="gifModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="gifTitle">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h3 id="gifTitle">输出格式</h3>
+            <p>GIF 仅限 GPT-image-2.6 Flare / Sunburst。</p>
+          </div>
+          <button type="button" class="icon-btn" data-close="gif" aria-label="关闭 GIF 设置"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <div id="outputFormatGroup" class="quality-grid count-grid" role="group" aria-label="输出格式">
+          <button type="button" data-output-format="image" class="active" aria-pressed="true">静态图片</button>
+          <button type="button" data-output-format="gif" aria-pressed="false">GIF 动图</button>
+        </div>
+        <div id="gifFields" class="gif-fields hidden">
+          <div class="gif-field-row">
+            <div><label for="gifFrameCount">帧数</label><input id="gifFrameCount" type="number" min="2" max="16" step="1" value="9" inputmode="numeric" /><small>2–16 帧</small></div>
+            <div><label for="gifFrameDuration">每帧时长（毫秒）</label><input id="gifFrameDuration" type="number" min="20" max="2000" step="10" value="200" inputmode="numeric" /><small>20–2000ms，按 10ms 取整</small></div>
+          </div>
+          <label for="gifSize">提交尺寸</label>
+          <select id="gifSize">
+            <option value="512x512">512 × 512（推荐）</option>
+            <option value="256x256">256 × 256</option>
+            <option value="768x512">768 × 512（横向）</option>
+            <option value="512x768">512 × 768（竖向）</option>
+            <option value="custom">自定义尺寸</option>
+            <option value="auto">Auto（可能超出像素预算）</option>
+          </select>
+          <div id="gifCustomSize" class="gif-field-row hidden">
+            <div><label for="gifWidth">宽度（像素）</label><input id="gifWidth" type="number" min="16" max="99984" step="16" value="512" inputmode="numeric" /></div>
+            <div><label for="gifHeight">高度（像素）</label><input id="gifHeight" type="number" min="16" max="99984" step="16" value="512" inputmode="numeric" /></div>
+          </div>
+          <p id="gifDurationSummary" class="gif-summary" aria-live="polite">每轮播放 1.8 秒 · 9 帧 × 200ms</p>
+          <p class="gif-help">GIF 仅支持文字生成，数量使用底部“张数”设置。帧数是每张动图的帧数。尺寸、帧数和数量越大，越容易超过上游像素预算；实际返回尺寸可能与提交尺寸不同。</p>
+          <p class="gif-help">提示词请描述主体动作、画风和首尾循环方式，例如“橘猫挥爪，固定镜头，首尾无缝循环，无文字”。</p>
+        </div>
+        <p id="gifSettingsError" class="error" role="alert"></p>
+        <button id="confirmGifBtn" type="button" class="primary-wide">确认设置</button>
       </div>
     </section>
 
@@ -264,6 +311,6 @@
       </button>
     </section>
 
-    <script src="/app.js?v=20261105-1" type="module"></script>
+    <script src="/app.js?v=20261106-1" type="module"></script>
   </body>
 </html>

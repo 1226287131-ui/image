@@ -20,6 +20,15 @@ sync_api_key_cookie($apiKey);
 
 unset($payload['apiKey']);
 
+try {
+    $requestSummary = summarize_request($payload);
+    if (is_gif_request($payload)) {
+        $payload = array_merge($payload, gif_request_options($payload));
+    }
+} catch (InvalidArgumentException $e) {
+    json_response(['error' => $e->getMessage()], 400);
+}
+
 $taskId = 'task_' . bin2hex(random_bytes(16));
 $task = [
     'id' => $taskId,
@@ -27,7 +36,7 @@ $task = [
     'progress' => 0,
     'createdAt' => now_ms(),
     'updatedAt' => now_ms(),
-    'request' => summarize_request($payload),
+    'request' => $requestSummary,
     'payload' => $payload,
     'images' => [],
     'error' => null,

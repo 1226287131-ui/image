@@ -6,6 +6,7 @@ API documentation:
 
 - `API开发文档.md`: site API and asynchronous task integration.
 - `IMAGE-2-API参数说明.md`: `gpt-image-2` 系列上游参数和 URL-only 返回约束。
+- `GIF-API参数说明.md`: GPT Image 2.6 Flare / Sunburst 静态协议、GIF 使用方式、参数与限制。
 - `NANO-BANANA-GEMINI原生协议.md`: Gemini native `generateContent` text-to-image and image-to-image request reference for Nano Banana models.
 
 Required PHP capabilities:

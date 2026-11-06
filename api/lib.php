@@ -15,6 +15,8 @@ const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 const GPT_IMAGE_2_5_FLARE_MODEL = 'gpt-image-2.5-flare';
 const GPT_IMAGE_2_5_SUNBURST_MODEL = 'gpt-image-2.5-sunburst';
 const GPT_IMAGE_2_6_CF_MODEL = 'gpt-image-2.6-cf';
+const GPT_IMAGE_2_6_FLARE_MODEL = 'gpt-image-2.6-flare';
+const GPT_IMAGE_2_6_SUNBURST_MODEL = 'gpt-image-2.6-sunburst';
 const NANO_BANANA_2_MODEL = 'Nano Banana 2';
 const NANO_BANANA_PRO_MODEL = 'Nano Banana Pro';
 const MAX_REFERENCE_IMAGES = 16;
@@ -601,6 +603,8 @@ function requested_model(array $payload): string
     if ($normalized === GPT_IMAGE_2_5_FLARE_MODEL) return GPT_IMAGE_2_5_FLARE_MODEL;
     if ($normalized === GPT_IMAGE_2_5_SUNBURST_MODEL) return GPT_IMAGE_2_5_SUNBURST_MODEL;
     if ($normalized === GPT_IMAGE_2_6_CF_MODEL) return GPT_IMAGE_2_6_CF_MODEL;
+    if ($normalized === GPT_IMAGE_2_6_FLARE_MODEL) return GPT_IMAGE_2_6_FLARE_MODEL;
+    if ($normalized === GPT_IMAGE_2_6_SUNBURST_MODEL) return GPT_IMAGE_2_6_SUNBURST_MODEL;
 
     return DEFAULT_IMAGE_MODEL;
 }
@@ -611,6 +615,8 @@ function requested_model_label(string $model): string
     if ($model === GPT_IMAGE_2_5_FLARE_MODEL) return 'GPT-image-2.5 Flare';
     if ($model === GPT_IMAGE_2_5_SUNBURST_MODEL) return 'GPT-image-2.5 Sunburst';
     if ($model === GPT_IMAGE_2_6_CF_MODEL) return 'GPT-image-2.6 CF';
+    if ($model === GPT_IMAGE_2_6_FLARE_MODEL) return 'GPT-image-2.6 Flare';
+    if ($model === GPT_IMAGE_2_6_SUNBURST_MODEL) return 'GPT-image-2.6 Sunburst';
     return 'GPT-image-2';
 }
 
@@ -624,10 +630,68 @@ function is_nano_banana_model(string $model): bool
     return $model === NANO_BANANA_2_MODEL || $model === NANO_BANANA_PRO_MODEL;
 }
 
+function is_gif_request(array $payload): bool
+{
+    return strtolower(trim((string)($payload['output_format'] ?? ''))) === 'gif';
+}
+
+function gif_request_options(array $payload): array
+{
+    if (!in_array(requested_model($payload), [GPT_IMAGE_2_6_FLARE_MODEL, GPT_IMAGE_2_6_SUNBURST_MODEL], true)) {
+        throw new InvalidArgumentException('GIF 仅支持 gpt-image-2.6-flare 和 gpt-image-2.6-sunburst 模型。');
+    }
+    if (count(reference_images_from_payload($payload)) > 0) {
+        throw new InvalidArgumentException('GIF 目前仅支持文生图，请移除参考图后重试。');
+    }
+    foreach (['stream', 'partial_images', 'mask', 'output_compression', 'prompt_rewriter'] as $field) {
+        if (array_key_exists($field, $payload)) {
+            throw new InvalidArgumentException('GIF 不支持参数：' . $field);
+        }
+    }
+
+    $frames = $payload['frame_count'] ?? 9;
+    if (!is_int($frames) || $frames < 2 || $frames > 16) {
+        throw new InvalidArgumentException('GIF 帧数必须是 2–16 的整数。');
+    }
+    $duration = $payload['frame_duration_ms'] ?? 200;
+    if ((!is_int($duration) && !is_float($duration)) || !is_finite((float)$duration) || $duration < 20 || $duration > 2000) {
+        throw new InvalidArgumentException('GIF 每帧时长必须在 20–2000 毫秒之间。');
+    }
+    $count = $payload['count'] ?? ($payload['n'] ?? 1);
+    if (!is_int($count) || $count < 1 || $count > 10) {
+        throw new InvalidArgumentException('GIF 生成数量必须是 1–10 的整数。');
+    }
+    // GIF uses its own pixel budget; never inherit the still-image 1K/2K/4K size.
+    $size = strtolower(trim((string)($payload['size'] ?? '512x512')));
+    if ($size !== 'auto') {
+        if (!preg_match('/^([1-9][0-9]{0,4})x([1-9][0-9]{0,4})$/', $size, $matches) || (int)$matches[1] % 16 !== 0 || (int)$matches[2] % 16 !== 0) {
+            throw new InvalidArgumentException('GIF 尺寸必须为 auto 或 宽x高，宽高均须为 16 的正整数倍。');
+        }
+    }
+    return [
+        'output_format' => 'gif',
+        'frame_count' => $frames,
+        'frame_duration_ms' => (int)round($duration / 10) * 10,
+        'size' => $size,
+    ];
+}
+
 function summarize_request(array $payload): array
 {
     $refs = reference_images_from_payload($payload);
     $model = requested_model($payload);
+    if (is_gif_request($payload)) {
+        $options = gif_request_options($payload);
+        return array_merge([
+            'prompt' => $payload['prompt'] ?? '',
+            'model' => $model,
+            'modelLabel' => requested_model_label($model),
+            'ratio' => $options['size'] === 'auto' ? '1:1' : str_replace('x', ':', $options['size']),
+            'exactSize' => $options['size'],
+            'count' => requested_image_count($payload),
+            'referenceImageCount' => 0,
+        ], $options);
+    }
     return [
         'prompt' => $payload['prompt'] ?? '',
         'model' => $model,
@@ -709,6 +773,7 @@ function data_url_mime(string $value): string
 
 function infer_extension(string $source, string $contentType = ''): string
 {
+    if (starts_with($source, 'data:image/gif') || contains_text($contentType, 'gif')) return 'gif';
     if (starts_with($source, 'data:image/jpeg') || contains_text($contentType, 'jpeg')) return 'jpg';
     if (starts_with($source, 'data:image/webp') || contains_text($contentType, 'webp')) return 'webp';
     return 'png';
@@ -1010,6 +1075,22 @@ function build_upstream_request(array $payload, ?int $countOverride = null): arr
 {
     $requestedModel = requested_model($payload);
     $upstreamModel = upstream_model_name($requestedModel);
+    if (is_gif_request($payload)) {
+        $body = array_merge([
+            'model' => $upstreamModel,
+            'prompt' => (string)$payload['prompt'],
+            'n' => $countOverride ?? requested_image_count($payload),
+            'response_format' => 'url',
+        ], gif_request_options($payload));
+        return [
+            'provider' => 'openai',
+            'endpoint' => '/v1/images/generations',
+            'body' => json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            'isMultipart' => false,
+            'tempFiles' => [],
+            'summaryBody' => $body,
+        ];
+    }
     $ratio = in_array(($payload['ratio'] ?? '1:1'), SUPPORTED_RATIOS, true) ? $payload['ratio'] : '1:1';
     $resolution = strtoupper((string)($payload['resolution'] ?? '1K'));
     $size = $payload['exactSize'] ?? ($payload['size'] ?? calculate_exact_size($ratio, $resolution));

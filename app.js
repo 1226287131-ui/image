@@ -31,6 +31,18 @@ const apiKeyInput = document.querySelector("#apiKeyInput");
 const toggleKeyBtn = document.querySelector("#toggleKeyBtn");
 const saveApiKeyBtn = document.querySelector("#saveApiKeyBtn");
 const modelGrid = document.querySelector("#modelGrid");
+const gifOptionsBtn = document.querySelector("#gifOptionsBtn");
+const btnGifName = document.querySelector("#btnGifName");
+const outputFormatGroup = document.querySelector("#outputFormatGroup");
+const gifFields = document.querySelector("#gifFields");
+const gifFrameCount = document.querySelector("#gifFrameCount");
+const gifFrameDuration = document.querySelector("#gifFrameDuration");
+const gifSize = document.querySelector("#gifSize");
+const gifCustomSize = document.querySelector("#gifCustomSize");
+const gifWidth = document.querySelector("#gifWidth");
+const gifHeight = document.querySelector("#gifHeight");
+const gifDurationSummary = document.querySelector("#gifDurationSummary");
+const gifSettingsError = document.querySelector("#gifSettingsError");
 const ratioGrid = document.querySelector("#ratioGrid");
 const resolutionGroup = document.querySelector("#resolutionGroup");
 const qualityGrid = document.querySelector("#qualityGrid");
@@ -75,6 +87,8 @@ const MODEL_OPTIONS = {
   "gpt-image-2.5-flare": { label: "GPT-image-2.5 Flare" },
   "gpt-image-2.5-sunburst": { label: "GPT-image-2.5 Sunburst" },
   "gpt-image-2.6-cf": { label: "GPT-image-2.6 CF" },
+  "gpt-image-2.6-flare": { label: "GPT-image-2.6 Flare", supportsGif: true },
+  "gpt-image-2.6-sunburst": { label: "GPT-image-2.6 Sunburst", supportsGif: true },
   "Nano Banana 2": { label: "Nano Banana 2" },
   "Nano Banana 2.1": { label: "Nano Banana 2.1", requestModel: "Nano Banana 2" },
   "Nano Banana Pro": { label: "Nano Banana Pro" }
@@ -97,6 +111,95 @@ function modelLabel(model) {
 function modelRequestName(model) {
   const normalized = normalizeModel(model);
   return MODEL_OPTIONS[normalized].requestModel || normalized;
+}
+
+function isGifMode() {
+  return Boolean(MODEL_OPTIONS[normalizeModel(state.model)].supportsGif) && state.outputFormat === "gif";
+}
+
+function readGifSettings() {
+  const frames = Number(gifFrameCount.value);
+  const duration = Number(gifFrameDuration.value);
+  if (!Number.isInteger(frames) || frames < 2 || frames > 16) {
+    gifFrameCount.focus();
+    throw new Error("GIF 帧数必须是 2–16 的整数。");
+  }
+  if (!Number.isFinite(duration) || duration < 20 || duration > 2000) {
+    gifFrameDuration.focus();
+    throw new Error("每帧时长必须在 20–2000 毫秒之间。");
+  }
+  let size = gifSize.value;
+  if (size === "custom") {
+    const width = Number(gifWidth.value);
+    const height = Number(gifHeight.value);
+    if (![width, height].every((value) => Number.isInteger(value) && value >= 16 && value <= 99984 && value % 16 === 0)) {
+      gifWidth.focus();
+      throw new Error("自定义宽高必须为 16 的正整数倍。");
+    }
+    size = `${width}x${height}`;
+  }
+  return { output_format: "gif", frame_count: frames, frame_duration_ms: Math.round(duration / 10) * 10, size };
+}
+
+function updateGifSummary() {
+  gifCustomSize.classList.toggle("hidden", gifSize.value !== "custom");
+  const frames = Number(gifFrameCount.value);
+  const duration = Math.round(Number(gifFrameDuration.value) / 10) * 10;
+  gifDurationSummary.textContent = frames >= 2 && frames <= 16 && duration >= 20 && duration <= 2000
+    ? `每轮播放 ${Number((frames * duration / 1000).toFixed(2))} 秒 · ${frames} 帧 × ${duration}ms · 生成 ${state.count} 张 GIF`
+    : "请填写有效的帧数和每帧时长。";
+}
+
+function restoreGifForm() {
+  gifFrameCount.value = String(state.gif.frame_count);
+  gifFrameDuration.value = String(state.gif.frame_duration_ms);
+  const preset = [...gifSize.options].some((option) => option.value === state.gif.size);
+  gifSize.value = preset ? state.gif.size : "custom";
+  if (!preset) {
+    [gifWidth.value, gifHeight.value] = state.gif.size.split("x");
+  }
+  gifSettingsError.textContent = "";
+  updateGifSummary();
+}
+
+function updateGifUi() {
+  const supported = Boolean(MODEL_OPTIONS[normalizeModel(state.model)].supportsGif);
+  if (!supported) {
+    state.outputFormat = "image";
+    closeModal("gif");
+  }
+  const active = isGifMode();
+  gifOptionsBtn.classList.toggle("hidden", !supported);
+  btnGifName.textContent = active ? `GIF · ${state.gif.frame_count}帧` : "静态图片 / GIF";
+  gifFields.classList.toggle("hidden", !active);
+  outputFormatGroup.querySelectorAll("[data-output-format]").forEach((button) => {
+    const selected = button.dataset.outputFormat === state.outputFormat;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  const sizeButton = btnSizeName.closest("[data-open]");
+  sizeButton.dataset.open = active ? "gif" : "size";
+  if (active) btnSizeName.textContent = `GIF (${state.gif.size})`;
+  btnQualityName.closest("[data-open]").classList.toggle("hidden", active);
+  referenceInput.closest("label").classList.toggle("hidden", active);
+  referenceInput.disabled = active;
+  previewStrip.classList.toggle("hidden", active);
+  promptInput.placeholder = active ? "描述主体、动作、画风及首尾循环方式，生成 GIF 动图..." : "描述想要生成的画面...（支持多行）";
+  renderCount();
+  updateGifSummary();
+}
+
+function buildTaskPayload(prompt) {
+  const common = { prompt, model: modelRequestName(state.model), apiKey: state.apiKey };
+  if (isGifMode()) {
+    if (state.referenceImages.length) throw new Error("GIF 目前仅支持文生图，请先移除参考图。");
+    state.gif = readGifSettings();
+    return { ...common, ...state.gif, n: state.count };
+  }
+  return {
+    ...common, ratio: state.ratio, resolution: state.resolution, exactSize: state.exactSize,
+    quality: state.quality, count: state.count, referenceImages: state.referenceImages
+  };
 }
 
 function taskHistoryTimestamp(task) {
@@ -143,6 +246,8 @@ const state = {
   quality: "auto",
   count: 1,
   exactSize: "1024x1024",
+  outputFormat: "image",
+  gif: { output_format: "gif", frame_count: 9, frame_duration_ms: 200, size: "512x512" },
   apiKey: localStorage.getItem("gpt_api_key") || "",
   referenceImages: [],
   tasks: loadHistory()
@@ -823,10 +928,19 @@ function initRetentionNotice() {
 function openModal(id) {
   document.querySelectorAll(".modal").forEach((modal) => modal.classList.add("hidden"));
   document.querySelector(`#${id}Modal`)?.classList.remove("hidden");
+  if (id === "gif") {
+    gifReturnFocus = document.activeElement;
+    restoreGifForm();
+    outputFormatGroup.querySelector(".active")?.focus();
+  }
 }
 
 function closeModal(id) {
-  document.querySelector(`#${id}Modal`)?.classList.add("hidden");
+  const modal = document.querySelector(`#${id}Modal`);
+  const wasOpen = modal && !modal.classList.contains("hidden");
+  modal?.classList.add("hidden");
+  if (id === "gif" && wasOpen) restoreGifForm();
+  if (id === "gif" && wasOpen && gifReturnFocus?.isConnected) gifReturnFocus.focus();
 }
 
 function fileToDataUrl(file) {
@@ -918,6 +1032,7 @@ function updateModelUi() {
   }
   renderResolution();
   updateSizeLabels();
+  updateGifUi();
 }
 
 function renderRatioGrid() {
@@ -955,6 +1070,7 @@ function renderCount() {
     button.classList.toggle("active", Number(button.dataset.count) === state.count);
   });
   btnCountName.textContent = `${state.count}张`;
+  if (isGifMode()) btnCountName.textContent = `${state.count}张 GIF`;
 }
 
 function renderPreviews() {
@@ -1080,6 +1196,10 @@ function referencedImageNumbers(prompt) {
 }
 
 async function addReferenceFiles(files) {
+  if (isGifMode()) {
+    alert("GIF 目前仅支持文生图。如需上传参考图，请先切回静态图片。");
+    return;
+  }
   const incomingFiles = [...files].filter((file) => file.type.startsWith("image/"));
   if (!incomingFiles.length) {
     alert("请拖入图片文件作为参考图。");
@@ -1197,6 +1317,9 @@ function renderGallery() {
     .map((task) => {
       const request = task.request || {};
       const prompt = request.prompt || task.prompt || "";
+      const mediaDetails = request.output_format === "gif"
+        ? `GIF · ${request.size || request.exactSize || "512x512"} · ${request.frame_count}帧 · ${Number((request.frame_count * request.frame_duration_ms / 1000).toFixed(2))}秒/轮`
+        : `${request.resolution || ""} · ${request.ratio || ""} · ${request.quality || "auto"}`;
       const taskAspectRatio = taskAspectRatioCss(request.ratio);
       const selected = selectedTaskIds.has(task.id);
       const selectControl = `
@@ -1236,7 +1359,7 @@ function renderGallery() {
             <div class="card-meta">
               <strong class="card-prompt" title="${escapeHtml(prompt || "生成图片")}">${escapeHtml(prompt || "生成图片")}</strong>
               <div class="card-subline">
-                <span>${request.resolution || ""} · ${request.ratio || ""} · ${request.quality || "auto"} · ${images.length}张</span>
+                <span title="${escapeHtml(mediaDetails)}">${escapeHtml(mediaDetails)} · ${images.length}张</span>
                 <span class="task-duration">${formatTaskDuration(task)}</span>
               </div>
             </div>
@@ -1363,19 +1486,16 @@ async function submitTask() {
     apiKeyInput?.focus();
     return;
   }
+  let payload;
+  const requestModelLabel = modelLabel(state.model);
+  try {
+    payload = buildTaskPayload(prompt);
+  } catch (error) {
+    openModal("gif");
+    gifSettingsError.textContent = error.message;
+    return;
+  }
   setBusy(true);
-  const model = modelRequestName(state.model);
-  const payload = {
-    prompt,
-    model,
-    ratio: state.ratio,
-    resolution: state.resolution,
-    exactSize: state.exactSize,
-    quality: state.quality,
-    count: state.count,
-    referenceImages: state.referenceImages,
-    apiKey: state.apiKey
-  };
 
   try {
     const response = await fetch("/api/create-task.php", {
@@ -1392,14 +1512,20 @@ async function submitTask() {
       progress: 1,
       request: {
         prompt,
-        model,
-        modelLabel: modelLabel(state.model),
-        ratio: state.ratio,
-        resolution: state.resolution,
-        exactSize: state.exactSize,
-        quality: state.quality,
-        count: state.count,
-        referenceImageCount: state.referenceImages.length
+        model: payload.model,
+        modelLabel: requestModelLabel,
+        ratio: payload.output_format === "gif" ? (payload.size === "auto" ? "1:1" : payload.size.replace("x", ":")) : payload.ratio,
+        resolution: payload.resolution,
+        exactSize: payload.size || payload.exactSize,
+        quality: payload.quality,
+        count: payload.n || payload.count,
+        ...(payload.output_format === "gif" ? {
+          output_format: payload.output_format,
+          frame_count: payload.frame_count,
+          frame_duration_ms: payload.frame_duration_ms,
+          size: payload.size
+        } : {}),
+        referenceImageCount: payload.referenceImages?.length || 0
       },
       images: []
     };
@@ -1445,8 +1571,65 @@ document.querySelectorAll("[data-close]").forEach((button) => {
 
 document.querySelectorAll(".modal").forEach((modal) => {
   modal.addEventListener("click", (event) => {
-    if (event.target === modal) modal.classList.add("hidden");
+    if (event.target === modal) closeModal(modal.id.replace(/Modal$/, ""));
   });
+});
+
+let gifReturnFocus = null;
+
+outputFormatGroup.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-output-format]");
+  if (!button || !MODEL_OPTIONS[normalizeModel(state.model)].supportsGif) return;
+  if (button.dataset.outputFormat === "gif" && state.referenceImages.length) {
+    gifSettingsError.textContent = "GIF 目前仅支持文生图，请先移除参考图。";
+    return;
+  }
+  state.outputFormat = button.dataset.outputFormat;
+  gifSettingsError.textContent = "";
+  updateSizeLabels();
+  updateGifUi();
+});
+
+[gifFrameCount, gifFrameDuration, gifSize, gifWidth, gifHeight].forEach((input) => {
+  input.addEventListener("input", () => {
+    gifSettingsError.textContent = "";
+    updateGifSummary();
+  });
+});
+
+document.querySelector("#confirmGifBtn").addEventListener("click", () => {
+  if (isGifMode()) {
+    try {
+      state.gif = readGifSettings();
+      gifFrameDuration.value = String(state.gif.frame_duration_ms);
+    } catch (error) {
+      gifSettingsError.textContent = error.message;
+      return;
+    }
+  }
+  gifSettingsError.textContent = "";
+  updateSizeLabels();
+  updateGifUi();
+  closeModal("gif");
+});
+
+document.querySelector("#gifModal").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeModal("gif");
+  }
+  if (event.key !== "Tab") return;
+  const controls = [...event.currentTarget.querySelectorAll("button, input, select")]
+    .filter((element) => !element.disabled && element.getClientRects().length);
+  const first = controls[0];
+  const last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first?.focus();
+  }
 });
 
 ratioGrid.addEventListener("click", (event) => {
@@ -1486,9 +1669,12 @@ countGrid.addEventListener("click", (event) => {
   if (!button) return;
   state.count = Math.min(10, Math.max(1, Number(button.dataset.count) || 1));
   if (state.count >= 5) {
-    alert("一次生成 5 张以上会按张顺序生成，等待时间会更久。如果使用 4K 或参考图，建议先用 1-4 张测试。");
+    alert(isGifMode()
+      ? "多张 GIF 会按张顺序生成，等待时间更久；尺寸和帧数受上游像素预算限制，建议先用 1 张、512×512、9 帧测试。"
+      : "一次生成 5 张以上会按张顺序生成，等待时间会更久。如果使用 4K 或参考图，建议先用 1-4 张测试。");
   }
   renderCount();
+  updateGifSummary();
   closeModal("count");
 });
 
