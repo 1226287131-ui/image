@@ -26,12 +26,26 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
     const page = await context.newPage();
     const errors = [];
     const submitted = [];
+    const imageFileRequests = [];
+    const imageFileAttempts = new Map();
     page.on('pageerror', error => errors.push(error.message));
     page.on('dialog', dialog => dialog.accept());
     await page.route('https://cdnjs.cloudflare.com/**', route => route.fulfill({ body: '' }));
     await page.route('**/api/**', async route => {
       const endpoint = new URL(route.request().url()).pathname;
       if (endpoint === '/api/image-file.php') {
+        const taskId = new URL(route.request().url()).searchParams.get('taskId');
+        const attempts = (imageFileAttempts.get(taskId) || 0) + 1;
+        imageFileAttempts.set(taskId, attempts);
+        imageFileRequests.push(route.request().headers());
+        if (taskId === 'fixture1' && attempts === 1) {
+          await route.fulfill({ status: 429, headers: { 'Retry-After': '1' }, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) });
+          return;
+        }
+        if (taskId === 'fixture2' && attempts === 1) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'temporary failure' }) });
+          return;
+        }
         await route.fulfill({ contentType: 'image/gif', body: gif });
         return;
       }
@@ -151,8 +165,19 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
       const tasks = [1, 2].map(index => ({ id: `task_${String(index + 100).padStart(32, '0')}`, status: 'succeeded', createdAt: Date.now(), finishedAt: Date.now(), request: { model: 'gpt-image-2.6-flare', prompt: 'Animated cat', output_format: 'gif', frame_count: 2, frame_duration_ms: 100, size: '512x512' }, images: [{ url: `/api/image-file.php?taskId=fixture${index}&index=0` }] }));
       localStorage.setItem('image_tasks', JSON.stringify(tasks));
     });
+    const retryTaskId = `task_${String(102).padStart(32, '0')}`;
     await page.reload();
     await page.waitForFunction(() => [...document.querySelectorAll('#gallery img')].some(image => image.src.startsWith('blob:') && image.naturalWidth > 0));
+    const failedImage = page.locator(`.task-card[data-task-id="${retryTaskId}"] .task-hero-button.image-load-failed`);
+    await failedImage.waitFor({ state: 'visible' });
+    assert.match(await failedImage.getAttribute('title'), /点击重试/);
+    assert.equal(imageFileRequests.length, 3, 'each proxied image is fetched once, with one additional request for the simulated 429');
+    assert.equal(imageFileAttempts.get('fixture1'), 2, '429 responses are retried');
+    assert.ok(imageFileRequests.every(headers => headers['x-api-key'] === 'local-ui-test-key'), 'proxy requests include the API key header');
+    await failedImage.click();
+    await page.waitForFunction(() => [...document.querySelectorAll('#gallery img')].filter(image => image.src.startsWith('blob:') && image.naturalWidth > 0).length === 2);
+    assert.equal(imageFileAttempts.get('fixture2'), 2, 'failed images can be retried by clicking the preview');
+    await page.locator('.lightbox-close').click();
     assert.match(await page.locator('#gallery').innerText(), /GIF.*2帧.*0\.2秒/);
     await page.locator('#selectAllBtn').click();
     const downloadPromise = page.waitForEvent('download');

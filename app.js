@@ -431,8 +431,13 @@ function proxyImageUrl(image) {
 function getTaskImageViewUrl(task, image, imageIndex) {
   const memoryUrl = imageObjectUrls.get(taskImageKey(task.id, imageIndex));
   if (memoryUrl) return memoryUrl;
+  if (proxyImageUrl(image)) return TRANSPARENT_PIXEL;
   const rawUrl = String(image?.url || "");
   return rawUrl || TRANSPARENT_PIXEL;
+}
+
+function taskImageLoadFailed(taskId, imageIndex) {
+  return imageLoadFailures.has(taskImageKey(taskId, imageIndex));
 }
 
 function revokeTaskImageUrls(task) {
@@ -469,15 +474,18 @@ async function fetchImageBlob(image) {
   if (proxyUrl && state.apiKey) headers["X-API-Key"] = state.apiKey;
 
   let response;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     response = await fetch(sourceUrl, {
       method: "GET",
       headers,
       cache: "force-cache"
     });
     if (response.status !== 429) break;
-    const retryAfter = Math.min(3, Math.max(1, Number(response.headers.get("Retry-After")) || 2));
-    await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+    if (attempt === 9) break;
+    const retryAfterMs = Math.max(1000, (Number(response.headers.get("Retry-After")) || 2) * 1000);
+    const backoffMs = Math.min(20000, Math.max(retryAfterMs, 1000 * (2 ** attempt)));
+    const jitterMs = Math.floor(Math.random() * 400);
+    await new Promise((resolve) => setTimeout(resolve, backoffMs + jitterMs));
   }
   if (!response.ok) {
     const error = new Error(await readErrorMessage(response, `图片读取失败，HTTP ${response.status}`));
@@ -540,12 +548,13 @@ async function ensureTaskImageLoaded(taskId, imageIndex, options = {}) {
     return objectUrl;
   }, Boolean(options.priority))
     .catch((error) => {
-      if (error.status !== 429) imageLoadFailures.add(key);
+      imageLoadFailures.add(key);
       console.warn(`任务 ${taskId} 第 ${imageIndex + 1} 张图片加载失败`, error);
       throw error;
     })
     .finally(() => {
       imageLoadPromises.delete(key);
+      if (imageLoadFailures.has(key)) renderGallery();
     });
 
   imageLoadPromises.set(key, promise);
@@ -576,12 +585,13 @@ async function preloadTaskImage(task, imageIndex = 0) {
     return objectUrl;
   }, true)
     .catch((error) => {
-      if (error.status !== 429) imageLoadFailures.add(key);
+      imageLoadFailures.add(key);
       console.warn(`任务 ${task.id} 第 ${imageIndex + 1} 张图片预加载失败`, error);
       throw error;
     })
     .finally(() => {
       imageLoadPromises.delete(key);
+      if (imageLoadFailures.has(key)) renderGallery();
     });
 
   imageLoadPromises.set(key, promise);
@@ -880,7 +890,7 @@ function updateLightbox() {
     lightboxPrompt.textContent = promptText;
     lightboxPrompt.scrollTop = 0;
   }
-  ensureTaskImageLoaded(task.id, imageIndex).catch(() => {});
+  ensureTaskImageLoaded(task.id, imageIndex, { force: true, priority: true }).catch(() => {});
 
   [lightboxPrev, lightboxNext].forEach((button) => {
     if (!button) return;
@@ -1335,7 +1345,7 @@ function renderGallery() {
         const heroImage = images[previewIndex];
         const thumbTiles = images
           .map((image, index) => `
-            <button class="task-thumb ${index === previewIndex ? "active" : ""}" type="button" data-preview="${task.id}" data-image-index="${index}" title="在大预览中查看第 ${index + 1} 张" aria-label="在大预览中查看第 ${index + 1} 张">
+            <button class="task-thumb ${index === previewIndex ? "active" : ""} ${taskImageLoadFailed(task.id, index) ? "image-load-failed" : ""}" type="button" data-preview="${task.id}" data-image-index="${index}" title="${taskImageLoadFailed(task.id, index) ? "图片加载失败，点击重试" : `在大预览中查看第 ${index + 1} 张`}" aria-label="${taskImageLoadFailed(task.id, index) ? "图片加载失败，点击重试" : `在大预览中查看第 ${index + 1} 张`}">
               <img src="${getTaskImageViewUrl(task, image, index)}" alt="${escapeHtml(prompt)} 第 ${index + 1} 张" loading="lazy">
             </button>
           `)
@@ -1345,7 +1355,7 @@ function renderGallery() {
             ${selectControl}
             <div class="task-media">
               <div class="task-image-wrap is-hero" style="--task-aspect-ratio: ${taskAspectRatio}; aspect-ratio: ${taskAspectRatio}">
-                <button class="task-hero-button" type="button" data-lightbox="${task.id}" data-image-index="${previewIndex}" title="查看原图">
+                <button class="task-hero-button ${taskImageLoadFailed(task.id, previewIndex) ? "image-load-failed" : ""}" type="button" data-lightbox="${task.id}" data-image-index="${previewIndex}" title="${taskImageLoadFailed(task.id, previewIndex) ? "图片加载失败，点击重试" : "查看原图"}">
                   <img src="${getTaskImageViewUrl(task, heroImage, previewIndex)}" alt="${escapeHtml(prompt)} 第 ${previewIndex + 1} 张" loading="lazy">
                 </button>
                 ${hasMultipleImages ? `<span class="image-count-pill"><i class="fa-regular fa-images"></i>${images.length}张</span>` : ""}

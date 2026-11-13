@@ -8,7 +8,7 @@ error_reporting(E_ALL);
 const API_BASE_URL = 'https://api.kkone.vip';
 const ASSET_BASE_URL = 'https://gimg.mooko.ai';
 const REQUEST_TIMEOUT_SECONDS = 1200;
-const IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 35;
+const IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 120;
 const MAX_CONCURRENT_IMAGE_DOWNLOADS = 3;
 const SUPPORTED_RATIOS = ['1:1', '5:4', '4:3', '3:2', '16:9', '21:9', '9:16', '4:5', '3:4', '2:3'];
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
